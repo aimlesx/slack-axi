@@ -1,0 +1,34 @@
+#compdef slack-axi
+
+local -a roots
+roots=(auth sync conversation user usergroup emoji read thread search inbox catchup message reaction file mark-read later policy action)
+
+_arguments -C \
+  '--workspace[workspace alias or team ID]:workspace:' \
+  '--output[structured output format]:format:(toon json jsonl)' \
+  '--fields[validated comma-separated result fields]:fields:' \
+  '--limit[collection bound]:number:' \
+  '--cursor[stable continuation cursor]:cursor:' \
+  '--full[return complete long-text fields]' \
+  '--verbose[emit redacted diagnostics]' \
+  '1:command:(auth sync conversation user usergroup emoji read thread search inbox catchup message reaction file mark-read later policy action)' \
+  '*::argument:->args'
+
+case $state in
+  args)
+    case $words[2] in
+      auth) _values 'subcommand' add list use revoke remove doctor ;;
+      conversation) _values 'subcommand' list get resolve members ;;
+      user) _values 'subcommand' search get ;;
+      usergroup) _values 'subcommand' list members ;;
+      emoji) _values 'subcommand' search ;;
+      search) _values 'subcommand' messages files ;;
+      message) _values 'subcommand' get cite send reply ;;
+      reaction) _values 'subcommand' list add remove ;;
+      file) _values 'subcommand' info get upload ;;
+      later) _values 'subcommand' list complete snooze ;;
+      policy) _values 'subcommand' init show validate apply ;;
+      action) _values 'subcommand' list show apply reconcile abandon delete gc ;;
+    esac
+  ;;
+esac

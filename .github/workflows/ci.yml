@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x86_64
+          - os: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: test "$(uname -m)" = "${{ matrix.arch }}"
+      - run: npm run check
+      - run: npm test
+      - run: npm audit --audit-level=low
+      - name: Pack the release artifact
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Install the packed artifact
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          npm install --prefix "$RUNNER_TEMP/slack-axi-install" "$RUNNER_TEMP/slack-axi-cli-$package_version.tgz"
+      - name: Exercise the installed executable
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          installed="$RUNNER_TEMP/slack-axi-install/node_modules/.bin/slack-axi"
+          test "$("$installed" --version)" = "$package_version"
+          "$installed" --help >/dev/null
+          HOME="$RUNNER_TEMP/slack-axi-clean-home" "$installed" --output json | grep -q '"status": "setup_required"'
