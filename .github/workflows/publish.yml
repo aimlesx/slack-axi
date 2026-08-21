@@ -224,9 +224,5 @@ jobs:
 
       - name: Publish to npm
         env:
-          # Bootstrap the first release with NPM_TOKEN. npm prefers GitHub OIDC
-          # after the package's trusted publisher is configured, so remove the
-          # secret immediately after that migration.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_FILENAME: ${{ needs.verify.outputs.filename }}
         run: npm publish "$RUNNER_TEMP/npm-package/$PACKAGE_FILENAME" --access public --provenance

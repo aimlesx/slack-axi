@@ -104,8 +104,8 @@ describe("package contract", () => {
     expect(workflow).toContain("npm publish");
     expect(publishJob).toContain('test "$(npm --version)" = "11.16.0"');
     expect(workflow).toContain("--access public --provenance");
-    expect(workflow).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
-    expect(workflow.match(/NODE_AUTH_TOKEN/g)).toHaveLength(1);
+    expect(workflow).not.toContain("NODE_AUTH_TOKEN");
+    expect(workflow).not.toContain("NPM_TOKEN");
     expect(workflow).toContain("group: npm-publish");
     expect(workflow).toContain("is already published; refusing to publish it again");
     expect(workflow).not.toMatch(/uses:\s+[^\s]+@v\d/);
