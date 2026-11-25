@@ -292,8 +292,8 @@ export class PublicSlackClient {
     this.uploadWeb = new WebClient(token, { ...common, timeout: 120_000 });
   }
 
-  private async call<T extends WebAPICallResult>(kind: CallKind, operation: () => Promise<T>): Promise<T> {
-    const attempts = kind === "read" ? 2 : 1;
+  private async call<T extends WebAPICallResult>(kind: CallKind, operation: () => Promise<T>, retryRead = true): Promise<T> {
+    const attempts = kind === "read" && retryRead ? 2 : 1;
     let last: AxiError | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -379,7 +379,7 @@ export class PublicSlackClient {
     return response.emoji;
   }
 
-  async history(options: { channel: string; oldest: string; latest: string; limit: number; cursor?: string }): Promise<{ items: SlackRecord[]; next?: string; complete: boolean }> {
+  async history(options: { channel: string; oldest: string; latest: string; limit: number; cursor?: string; retry?: boolean }): Promise<{ items: SlackRecord[]; next?: string; complete: boolean }> {
     const response = validate(z.object({ messages: z.array(messageSchema), has_more: z.boolean(), response_metadata: cursorMetadataSchema }).passthrough(), await this.call("read", () => this.web.conversations.history({
       channel: options.channel,
       oldest: precedingSlackTimestamp(options.oldest),
@@ -387,7 +387,7 @@ export class PublicSlackClient {
       inclusive: false,
       limit: Math.min(options.limit, 100),
       ...(options.cursor ? { cursor: options.cursor } : {}),
-    })), "conversations.history");
+    }), options.retry), "conversations.history");
     const next = response.response_metadata?.next_cursor || undefined;
     if (response.has_more && !next) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.history response claims another page without a continuation cursor.", details: { endpoint: "conversations.history", has_more: true } });
     return { items: response.messages, ...(next ? { next } : {}), complete: response.has_more !== true && !next };

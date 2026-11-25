@@ -342,14 +342,14 @@ slack-axi inbox --dm-only --include-muted
 .SS CATCHUP
 Summarize recent activity across bounded conversations.
 .PP
-Defaults: --since 24h; --max-conversations 20 (maximum 50); --per-conversation 5 (maximum 20); omitted conversations are represented by a count and at most five sample rows
+Defaults: --since 24h; --max-conversations 20 (maximum 50); --per-conversation 5 (maximum 20); rank by latest known activity with alphabetical fallback; omitted conversations are represented by a count and at most five sample rows
 .br
 Incompatible combinations: None.
 .nf
 slack-axi catchup --since 24h
 .fi
 .nf
-slack-axi catchup --max-conversations 12 --per-conversation 5
+slack-axi catchup --conversation '#eng' --conversation C034DEF
 .fi
 .SS MESSAGE
 Inspect, cite, stage, and send messages.

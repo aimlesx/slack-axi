@@ -8,6 +8,13 @@ export interface TimeRange {
   year: number;
 }
 
+export function slackTimestampMicros(value: unknown): bigint | undefined {
+  if (typeof value !== "string") return undefined;
+  const parts = /^(\d{1,14})(?:\.(\d{1,6}))?$/.exec(value);
+  if (!parts) return undefined;
+  return BigInt(parts[1]!) * 1_000_000n + BigInt((parts[2] ?? "").padEnd(6, "0"));
+}
+
 function parseDuration(value: string): number | undefined {
   const match = value.match(/^([1-9]\d*)(m|h|d|w)$/);
   if (!match) return undefined;
