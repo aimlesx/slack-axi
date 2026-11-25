@@ -116,6 +116,7 @@ jobs:
             "dist/policy.js",
             "dist/process-identity.js",
             "dist/refs.js",
+            "dist/rich-content.js",
             "dist/slack-browser.js",
             "dist/slack-public.js",
             "dist/time.js",

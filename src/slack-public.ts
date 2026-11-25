@@ -78,8 +78,8 @@ const readStateSchema = z.object({
   last_read: z.string().regex(/^\d+(?:\.\d+)?$/),
 }).passthrough();
 const searchMessageSchema = z.union([
-  z.object({ ts: z.string(), text: z.string(), channel_id: z.string(), reactions: z.array(reactionSchema).optional() }).passthrough(),
-  z.object({ ts: z.string(), text: z.string(), channel: z.object({ id: z.string() }).passthrough(), reactions: z.array(reactionSchema).optional() }).passthrough(),
+  z.object({ ts: z.string(), text: z.string().optional(), channel_id: z.string(), reactions: z.array(reactionSchema).optional() }).passthrough(),
+  z.object({ ts: z.string(), text: z.string().optional(), channel: z.object({ id: z.string() }).passthrough(), reactions: z.array(reactionSchema).optional() }).passthrough(),
 ]);
 const usergroupSchema = z.object({ id: z.string(), handle: z.string(), name: z.string(), description: z.string() }).passthrough();
 const fileSchema = z.object({
