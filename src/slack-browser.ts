@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AxiError } from "./errors.js";
+import { countSlackRequest } from "./request-budget.js";
 import { slackCookieHeader } from "./slack-public.js";
 
 type BrowserCallKind = "read" | "write";
@@ -220,6 +221,7 @@ export class BrowserSlackClient {
       ...body,
     };
     let response: Response;
+    countSlackRequest();
     try {
       this.backendCalls += 1;
       response = await this.fetchFn(`${this.baseUrl}/${method}`, {

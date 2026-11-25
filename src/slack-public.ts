@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { LogLevel, WebClient, type Logger, type WebAPICallResult } from "@slack/web-api";
 import { z } from "zod";
 import { AxiError } from "./errors.js";
+import { countSlackRequest, slackRequestAvailable } from "./request-budget.js";
 import type { VerifiedUploadSnapshot } from "./types.js";
 
 type SlackRecord = Record<string, unknown>;
@@ -296,12 +297,13 @@ export class PublicSlackClient {
     const attempts = kind === "read" && retryRead ? 2 : 1;
     let last: AxiError | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
+      countSlackRequest();
       try {
         this.backendCalls += 1;
         return await bounded(operation(), kind === "file" ? 120_000 : kind === "write" ? 15_000 : 10_000, kind);
       } catch (cause) {
         last = translateSlackError(cause, kind);
-        if (!last.retryable || last.code === "RATE_LIMITED" || attempt + 1 >= attempts) throw last;
+        if (!last.retryable || last.code === "RATE_LIMITED" || attempt + 1 >= attempts || !slackRequestAvailable()) throw last;
       }
     }
     throw last ?? new AxiError({ code: "SLACK_API_ERROR", message: "Slack request failed." });
@@ -393,8 +395,14 @@ export class PublicSlackClient {
     return { items: response.messages, ...(next ? { next } : {}), complete: response.has_more !== true && !next };
   }
 
-  async replies(options: { channel: string; ts: string; limit: number; cursor?: string }): Promise<{ items: SlackRecord[]; next?: string; complete: boolean }> {
-    const response = validate(z.object({ messages: z.array(messageSchema), has_more: z.boolean(), response_metadata: cursorMetadataSchema }).passthrough(), await this.call("read", () => this.web.conversations.replies({ channel: options.channel, ts: options.ts, limit: Math.min(options.limit, 100), ...(options.cursor ? { cursor: options.cursor } : {}) })), "conversations.replies");
+  async replies(options: { channel: string; ts: string; limit: number; cursor?: string; range?: { oldest: string; latest: string } }): Promise<{ items: SlackRecord[]; next?: string; complete: boolean }> {
+    const response = validate(z.object({ messages: z.array(messageSchema), has_more: z.boolean(), response_metadata: cursorMetadataSchema }).passthrough(), await this.call("read", () => this.web.conversations.replies({
+      channel: options.channel,
+      ts: options.ts,
+      limit: Math.min(options.limit, 100),
+      ...(options.range ? { oldest: precedingSlackTimestamp(options.range.oldest), latest: options.range.latest, inclusive: false } : {}),
+      ...(options.cursor ? { cursor: options.cursor } : {}),
+    })), "conversations.replies");
     const next = response.response_metadata?.next_cursor || undefined;
     if (response.has_more && !next) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.replies response claims another page without a continuation cursor.", details: { endpoint: "conversations.replies", has_more: true } });
     return { items: response.messages, ...(next ? { next } : {}), complete: response.has_more !== true && !next };

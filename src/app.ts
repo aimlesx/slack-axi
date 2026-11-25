@@ -17,6 +17,8 @@ export interface WorkspaceContext extends WorkspaceClients {
   userMap: Map<string, CachedAuthor>;
 }
 
+type ColdCacheMode = "sync" | "conversations" | "entities" | "empty";
+
 export class SlackAxiApp {
   readonly config: ConfigStore;
   readonly auth: AuthService;
@@ -47,22 +49,14 @@ export class SlackAxiApp {
     return { id: profile.team_id, alias: profile.alias, actor_id: profile.actor_id, auth_kind: profile.kind };
   }
 
-  private async syncForClients(clients: WorkspaceClients, options: { maxPages?: number }): Promise<{ clients: WorkspaceClients; snapshot: CacheSnapshot }> {
-    const cacheTransaction = (this.cache as unknown as { transaction?: <T>(operation: () => Promise<T>) => Promise<T> }).transaction;
-    const publish = async (): Promise<{ clients: WorkspaceClients; snapshot: CacheSnapshot }> => {
-    const maxPages = options.maxPages ?? 2;
-    const conversations: Record<string, unknown>[] = [];
-    const users: Record<string, unknown>[] = [];
-    let backendCalls = 0;
-    const syncedAt = new Date().toISOString();
-    const identity = cacheIdentity(clients.profile);
-    const snapshot: CacheSnapshot = {
+  private emptySnapshot(profile: AuthProfile): CacheSnapshot {
+    return {
       version: 2,
       revision: this.revisionFactory(),
-      ...identity,
-      synced_at: syncedAt,
-      conversations,
-      users,
+      ...cacheIdentity(profile),
+      synced_at: new Date().toISOString(),
+      conversations: [],
+      users: [],
       emoji: {},
       coverage: {
         conversations: { scanned: 0, complete: false },
@@ -72,12 +66,21 @@ export class SlackAxiApp {
         backend_calls: 0,
       },
     };
+  }
+
+  private async syncForClients(clients: WorkspaceClients, options: { maxPages?: number; transient?: "conversations" | "entities" }): Promise<{ clients: WorkspaceClients; snapshot: CacheSnapshot }> {
+    const cacheTransaction = (this.cache as unknown as { transaction?: <T>(operation: () => Promise<T>) => Promise<T> }).transaction;
+    const publish = async (): Promise<{ clients: WorkspaceClients; snapshot: CacheSnapshot }> => {
+    const maxPages = options.maxPages ?? 2;
+    const snapshot = this.emptySnapshot(clients.profile);
+    const { conversations, users } = snapshot;
+    let backendCalls = 0;
     const save = async (): Promise<void> => {
       // Each visible progressive snapshot is a distinct immutable observation.
       // A cursor issued from any earlier page must become stale after growth.
       snapshot.revision = this.revisionFactory();
       snapshot.coverage.backend_calls = Math.max(backendCalls, clients.public.backendCalls + (clients.browser?.backendCalls ?? 0));
-      await this.cache.save(snapshot);
+      if (!options.transient) await this.cache.save(snapshot);
     };
     let cursor: string | undefined;
     for (let page = 0; page < maxPages; page += 1) {
@@ -95,6 +98,7 @@ export class SlackAxiApp {
         break;
       }
     }
+    if (options.transient === "conversations") return { clients, snapshot };
     cursor = undefined;
     for (let page = 0; page < maxPages; page += 1) {
       try {
@@ -111,6 +115,7 @@ export class SlackAxiApp {
         break;
       }
     }
+    if (options.transient === "entities") return { clients, snapshot };
     try {
       backendCalls += 1;
       snapshot.emoji = await clients.public.emoji();
@@ -163,7 +168,7 @@ export class SlackAxiApp {
     await save();
     return { clients, snapshot };
     };
-    return typeof cacheTransaction === "function"
+    return !options.transient && typeof cacheTransaction === "function"
       ? cacheTransaction.call(this.cache, publish) as Promise<{ clients: WorkspaceClients; snapshot: CacheSnapshot }>
       : publish();
   }
@@ -181,18 +186,21 @@ export class SlackAxiApp {
     return this.withSelectedClients(selector, (clients) => this.syncForClients(clients, options));
   }
 
-  async context(selector?: string, refresh = false): Promise<WorkspaceContext> {
+  async context(selector?: string, refresh = false, coldCache: ColdCacheMode = "sync"): Promise<WorkspaceContext> {
     // Resolve clients, select/load (or populate) their exact cache scope, and
     // build the context under one credential-generation lease. Without this,
     // an authentication replacement during a cache miss could pair the old
     // client/profile with a snapshot populated by the replacement client.
-    return this.withSelectedClients(selector, (clients) => this.contextForClients(clients, refresh));
+    return this.withSelectedClients(selector, (clients) => this.contextForClients(clients, refresh, coldCache));
   }
 
-  private async contextForClients(clients: WorkspaceClients, refresh: boolean): Promise<WorkspaceContext> {
+  private async contextForClients(clients: WorkspaceClients, refresh: boolean, coldCache: ColdCacheMode = "sync"): Promise<WorkspaceContext> {
     const expected = cacheIdentity(clients.profile);
     let snapshot = refresh ? undefined : await this.cache.load(expected);
-    if (!snapshot) snapshot = (await this.syncForClients(clients, {})).snapshot;
+    if (!snapshot) {
+      snapshot = coldCache === "empty" ? this.emptySnapshot(clients.profile)
+        : (await this.syncForClients(clients, coldCache === "sync" ? {} : { transient: coldCache })).snapshot;
+    }
     if (snapshot.team_id !== expected.team_id
       || snapshot.actor_id !== expected.actor_id
       || snapshot.credential_generation !== expected.credential_generation) {
