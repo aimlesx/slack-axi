@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { canonicalize } from "json-canonicalize";
 import type { CursorIntegrity } from "../src/cache.js";
-import { AxiError } from "../src/errors.js";
+import { SlkyError } from "../src/errors.js";
 import type { SecretStore } from "../src/keychain.js";
 
 export class MemoryCursorIntegrity implements CursorIntegrity {
@@ -25,18 +25,18 @@ export class MemorySecrets implements SecretStore {
   readonly failDelete = new Set<string>();
 
   async set(account: string, secret: string): Promise<void> {
-    if (this.failSet.has(account)) throw new AxiError({ code: "KEYCHAIN_WRITE_FAILED", message: "injected set failure" });
+    if (this.failSet.has(account)) throw new SlkyError({ code: "KEYCHAIN_WRITE_FAILED", message: "injected set failure" });
     this.values.set(account, secret);
   }
 
   async get(account: string): Promise<string> {
     const value = this.values.get(account);
-    if (!value) throw new AxiError({ code: "CREDENTIAL_MISSING", message: "missing" });
+    if (!value) throw new SlkyError({ code: "CREDENTIAL_MISSING", message: "missing" });
     return value;
   }
 
   async delete(account: string): Promise<boolean> {
-    if (this.failDelete.has(account)) throw new AxiError({ code: "KEYCHAIN_DELETE_FAILED", message: "injected delete failure" });
+    if (this.failDelete.has(account)) throw new SlkyError({ code: "KEYCHAIN_DELETE_FAILED", message: "injected delete failure" });
     return this.values.delete(account);
   }
 }

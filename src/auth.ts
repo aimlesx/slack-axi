@@ -1,4 +1,4 @@
-import { AxiError, redact } from "./errors.js";
+import { SlkyError, redact } from "./errors.js";
 import type { ActionStore, WorkspaceActionPurgeResult } from "./actions.js";
 import type { CachePurgeResult, CacheStore } from "./cache.js";
 import { ConfigStore } from "./config.js";
@@ -20,7 +20,7 @@ function browserApiBaseUrl(workspaceUrl: string): string {
   try {
     parsed = new URL(workspaceUrl);
   } catch (cause) {
-    throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication returned an invalid browser workspace URL.", cause });
+    throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication returned an invalid browser workspace URL.", cause });
   }
   const host = parsed.hostname.toLowerCase();
   const labels = host.endsWith(".slack.com") ? host.slice(0, -".slack.com".length).split(".") : [];
@@ -34,7 +34,7 @@ function browserApiBaseUrl(workspaceUrl: string): string {
     || labels.length === 0
     || labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
     || /^(?:api|app|edge|files|hooks|downloads?|status)(?:-|$)/.test(labels[0]!)) {
-    throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication did not return a supported HTTPS workspace URL for browser capabilities." });
+    throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication did not return a supported HTTPS workspace URL for browser capabilities." });
   }
   return `${parsed.origin}/api`;
 }
@@ -201,20 +201,20 @@ export class AuthService {
   }
 
   async add(options: { alias: string; kind?: AuthKind; token: string; cookie?: string }): Promise<AuthProfile> {
-    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(options.alias)) throw new AxiError({ code: "ALIAS_INVALID", message: "Workspace alias must contain only letters, numbers, underscores, and hyphens.", exitCode: 2 });
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(options.alias)) throw new SlkyError({ code: "ALIAS_INVALID", message: "Workspace alias must contain only letters, numbers, underscores, and hyphens.", exitCode: 2 });
     const kind: AuthKind = options.kind ?? (options.token.startsWith("xoxc-") ? "browser" : "user_token");
     if (kind === "browser" && (!browserTokenPattern.test(options.token) || !options.cookie || !browserCookiePattern.test(options.cookie))) {
-      throw new AxiError({ code: "CREDENTIAL_INVALID", message: "Browser authentication requires xoxc and xoxd credentials.", exitCode: 2 });
+      throw new SlkyError({ code: "CREDENTIAL_INVALID", message: "Browser authentication requires xoxc and xoxd credentials.", exitCode: 2 });
     }
     if (kind === "user_token" && (!userTokenPattern.test(options.token) || options.cookie !== undefined)) {
-      throw new AxiError({ code: "CREDENTIAL_INVALID", message: "User-token authentication requires an xoxp credential.", exitCode: 2 });
+      throw new SlkyError({ code: "CREDENTIAL_INVALID", message: "User-token authentication requires an xoxp credential.", exitCode: 2 });
     }
     const client = this.publicFactory(options.token, kind === "browser" ? options.cookie : undefined);
     const identity = await client.authTest();
     const grantedScopes = kind === "user_token" ? slackGrantedScopes(identity) : undefined;
     const teamId = string(identity.team_id);
     const actorId = string(identity.user_id);
-    if (!teamId || !actorId) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication did not return team and user IDs." });
+    if (!teamId || !actorId) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack authentication did not return team and user IDs." });
     const workspaceUrl = string(identity.url);
     if (kind === "browser") browserApiBaseUrl(workspaceUrl);
     // Date-only and offset-free command ranges are interpreted in the Slack
@@ -223,18 +223,18 @@ export class AuthService {
     // read/catch-up windows by hours (and across DST boundaries).
     const self = slackRecord(await client.userInfo(actorId));
     const timezone = string(self.tz);
-    if (!timezone) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack users.info did not return the authenticated actor's timezone." });
+    if (!timezone) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack users.info did not return the authenticated actor's timezone." });
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
     } catch (cause) {
-      throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack users.info returned an invalid authenticated-actor timezone.", cause });
+      throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack users.info returned an invalid authenticated-actor timezone.", cause });
     }
     return this.config.transaction(async () => {
     const configBefore = await this.config.load();
     const aliasMatch = configBefore.profiles.find((item) => item.alias === options.alias);
     const teamMatch = configBefore.profiles.find((item) => item.team_id === teamId);
     if (aliasMatch && teamMatch && aliasMatch !== teamMatch) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "WORKSPACE_ALIAS_CONFLICT",
         message: `Workspace alias '${options.alias}' is already assigned to a different Slack team.`,
         exitCode: 2,
@@ -251,14 +251,14 @@ export class AuthService {
     let accounts: string[] | undefined;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const generation = this.generationFactory();
-      if (!/^[A-Za-z0-9_-]{16,}$/.test(generation)) throw new AxiError({ code: "CREDENTIAL_GENERATION_INVALID", message: "The local credential generation identifier is invalid." });
+      if (!/^[A-Za-z0-9_-]{16,}$/.test(generation)) throw new SlkyError({ code: "CREDENTIAL_GENERATION_INVALID", message: "The local credential generation identifier is invalid." });
       const candidate = credentialAccounts(teamId, kind, generation);
       if (candidate.every((account) => !reservedAccounts.has(account))) {
         accounts = candidate;
         break;
       }
     }
-    if (!accounts) throw new AxiError({ code: "CREDENTIAL_GENERATION_FAILED", message: "Could not allocate a fresh Keychain credential generation." });
+    if (!accounts) throw new SlkyError({ code: "CREDENTIAL_GENERATION_FAILED", message: "Could not allocate a fresh Keychain credential generation." });
     const replaced = configBefore.profiles.filter((item) => item.alias === options.alias || item.team_id === teamId);
     const cacheCleanupTeams = [...new Set([teamId, ...replaced.map((item) => item.team_id)])];
     const oldAccounts = [...new Set(replaced.flatMap((profile) => profile.keychain_accounts))];
@@ -307,10 +307,10 @@ export class AuthService {
         // An unreadable verification is not evidence that the atomic pointer
         // switch lost. Keep the fresh generation: it is either the active
         // credential or remains durably listed as pending cleanup for doctor.
-        throw new AxiError({
+        throw new SlkyError({
           code: "AUTH_COMMIT_UNKNOWN",
           message: "The authentication profile update could not be verified; fresh credentials were retained to avoid breaking a possibly active profile.",
-          suggestedCommand: "slack-axi auth list",
+          suggestedCommand: "slky auth list",
           details: { pointer_verification_complete: false, fresh_credentials_retained: true },
           cause: verificationError,
         });
@@ -333,10 +333,10 @@ export class AuthService {
       try {
         await this.config.save(visible);
       } catch (durabilityError) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "AUTH_COMMIT_UNKNOWN",
           message: "The authentication profile is visible but could not be verified durable; old and fresh credentials were retained.",
-          suggestedCommand: "slack-axi auth list",
+          suggestedCommand: "slky auth list",
           details: { pointer_visibility_verified: true, pointer_durability_verified: false, credentials_retained: true },
           cause: durabilityError,
         });
@@ -348,10 +348,10 @@ export class AuthService {
     const cleanupTracking = await this.clearCredentialCleanupRecords(cleanup.deleted);
     const cacheCleanup = await this.purgeCacheTeams(cacheCleanupTeams);
     if (cleanup.failed.length || cleanupTracking || cacheCleanup.failure) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "The new profile is active, but obsolete local authentication data could not all be removed.",
-        suggestedCommand: "slack-axi auth doctor",
+        suggestedCommand: "slky auth doctor",
         details: {
           profile_alias: profile.alias,
           profile_active: true,
@@ -372,7 +372,7 @@ export class AuthService {
       if (profile.kind === "browser") {
         const cookieAccount = profile.keychain_accounts[1];
         if (!cookieAccount || !profile.workspace_url) {
-          throw new AxiError({ code: "AUTH_PROFILE_INVALID", message: "The browser authentication profile is incomplete." });
+          throw new SlkyError({ code: "AUTH_PROFILE_INVALID", message: "The browser authentication profile is incomplete." });
         }
         const cookie = await this.secrets.get(cookieAccount);
         return {
@@ -401,7 +401,7 @@ export class AuthService {
 
   async remove(selector: string): Promise<AuthRemovalResult> {
     if (!this.actions) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "ACTION_CLEANUP_UNAVAILABLE",
         message: "Authentication removal requires the workspace action store so local action data can be purged safely.",
       });
@@ -411,11 +411,11 @@ export class AuthService {
     try {
       actionCleanup = await this.actions.purgeWorkspace(removed.team_id);
     } catch (error) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "Workspace removal is paused because local action data could not be purged safely.",
         retryable: true,
-        suggestedCommand: `slack-axi auth remove ${removed.alias}`,
+        suggestedCommand: `slky auth remove ${removed.alias}`,
         details: {
           removed: { alias: removed.alias, team_id: removed.team_id },
           profile_removed: false,
@@ -429,11 +429,11 @@ export class AuthService {
       });
     }
     if (!actionCleanup.complete) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "Workspace removal is paused because some local action data could not be classified or deleted safely.",
         retryable: true,
-        suggestedCommand: `slack-axi auth remove ${removed.alias}`,
+        suggestedCommand: `slky auth remove ${removed.alias}`,
         details: {
           removed: { alias: removed.alias, team_id: removed.team_id },
           profile_removed: false,
@@ -451,10 +451,10 @@ export class AuthService {
         try {
           visible = await this.config.load();
         } catch (verificationError) {
-          throw new AxiError({
+          throw new SlkyError({
             code: "AUTH_COMMIT_UNKNOWN",
             message: "The workspace removal could not be verified; credentials were retained to avoid breaking a possibly active profile.",
-            suggestedCommand: "slack-axi auth list",
+            suggestedCommand: "slky auth list",
             details: { removal_verification_complete: false, credentials_retained: true },
             cause: verificationError,
           });
@@ -472,10 +472,10 @@ export class AuthService {
         try {
           await this.config.save(visible);
         } catch (durabilityError) {
-          throw new AxiError({
+          throw new SlkyError({
             code: "AUTH_COMMIT_UNKNOWN",
             message: "The workspace removal is visible but could not be verified durable; credentials were retained.",
-            suggestedCommand: "slack-axi auth list",
+            suggestedCommand: "slky auth list",
             details: { removal_visibility_verified: true, removal_durability_verified: false, credentials_retained: true },
             cause: durabilityError,
           });
@@ -485,10 +485,10 @@ export class AuthService {
       const cleanupTracking = await this.clearCredentialCleanupRecords(cleanup.deleted);
       const cacheCleanup = await this.purgeCacheTeams([removed.team_id]);
       if (cleanup.failed.length || cleanupTracking || cacheCleanup.failure) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "AUTH_REMOVE_PARTIAL",
           message: "The workspace profile was removed, but some local authentication data remains pending cleanup.",
-          suggestedCommand: "slack-axi auth doctor",
+          suggestedCommand: "slky auth doctor",
           details: {
             removed: { alias: removed.alias, team_id: removed.team_id },
             profile_removed: true,
@@ -515,10 +515,10 @@ export class AuthService {
     const staleActiveEntries = (config.pending_credential_cleanup ?? []).filter((account) => active.has(account));
     const staleTracking = await this.clearCredentialCleanupRecords(staleActiveEntries);
     if (staleTracking) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "Authentication cleanup records could not be reconciled.",
-        suggestedCommand: "slack-axi auth doctor",
+        suggestedCommand: "slky auth doctor",
         details: { cleanup_tracking: staleTracking },
       });
     }
@@ -527,10 +527,10 @@ export class AuthService {
     const result = await this.deleteAccounts(pending);
     const deletedTracking = await this.clearCredentialCleanupRecords(result.deleted);
     if (deletedTracking) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "Obsolete credentials were deleted, but their cleanup records could not be reconciled.",
-        suggestedCommand: "slack-axi auth doctor",
+        suggestedCommand: "slky auth doctor",
         details: { cleanup_tracking: deletedTracking },
       });
     }
@@ -554,7 +554,7 @@ export class AuthService {
     return this.config.transaction(async () => {
       const pending = await this.retryPendingCleanup();
       const cachePending = await this.retryPendingCacheCleanup();
-      if (pending.length || cachePending) throw new AxiError({
+      if (pending.length || cachePending) throw new SlkyError({
         code: "AUTH_REMOVE_PARTIAL",
         message: "Some obsolete local authentication data still could not be removed.",
         details: {
@@ -576,7 +576,7 @@ export class AuthService {
       let status: CapabilityStatus;
       if (clients.profile.kind === "browser") {
         const browser = clients.browser;
-        if (!browser) throw new AxiError({ code: "AUTH_PROFILE_INVALID", message: "The browser authentication profile has no browser capability client." });
+        if (!browser) throw new SlkyError({ code: "AUTH_PROFILE_INVALID", message: "The browser authentication profile has no browser capability client." });
         let counts: CapabilityDiagnostic;
         try {
           await browser.counts();

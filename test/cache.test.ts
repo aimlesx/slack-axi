@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SlackAxiApp } from "../src/app.js";
+import { SlkyApp } from "../src/app.js";
 import { cacheIdentity, CacheStore, createCacheCursor, filterHash, parseCacheCursor, type CacheSnapshot } from "../src/cache.js";
 import type { AuthService } from "../src/auth.js";
 import { credentialAccounts } from "../src/keychain.js";
@@ -36,18 +36,18 @@ describe("cache coverage and cursors", () => {
     const query = filterHash({ type: "channel" });
     const integrity = new MemoryCursorIntegrity();
     const cursor = await createCacheCursor(value, query, 20, integrity);
-    await expect(parseCacheCursor(cursor, value, query, "slack-axi conversation list", integrity)).resolves.toBe(20);
-    await expect(parseCacheCursor(cursor, { ...value, revision: "rev-2" }, query, "slack-axi conversation list", integrity)).rejects.toThrowError(/stale/i);
-    await expect(parseCacheCursor(cursor, { ...value, credential_generation: "replacement" }, query, "slack-axi conversation list", integrity)).rejects.toThrowError(/credential generation/i);
-    await expect(parseCacheCursor(cursor, value, filterHash({ type: "dm" }), "slack-axi conversation list", integrity)).rejects.toThrowError(/filter/i);
+    await expect(parseCacheCursor(cursor, value, query, "slky conversation list", integrity)).resolves.toBe(20);
+    await expect(parseCacheCursor(cursor, { ...value, revision: "rev-2" }, query, "slky conversation list", integrity)).rejects.toThrowError(/stale/i);
+    await expect(parseCacheCursor(cursor, { ...value, credential_generation: "replacement" }, query, "slky conversation list", integrity)).rejects.toThrowError(/credential generation/i);
+    await expect(parseCacheCursor(cursor, value, filterHash({ type: "dm" }), "slky conversation list", integrity)).rejects.toThrowError(/filter/i);
 
     const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
     const tampered = Buffer.from(JSON.stringify({ ...decoded, o: 9_000_000 })).toString("base64url");
-    await expect(parseCacheCursor(tampered, value, query, "slack-axi conversation list", integrity)).rejects.toMatchObject({ code: "CURSOR_INVALID" });
+    await expect(parseCacheCursor(tampered, value, query, "slky conversation list", integrity)).rejects.toMatchObject({ code: "CURSOR_INVALID" });
   });
 
   it("isolates snapshots across actors and credential generations", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-cache-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-cache-"));
     const cache = new CacheStore(root);
     const u1g1 = { team_id: "T1", actor_id: "U1", credential_generation: "generation-one" };
     const u1g2 = { team_id: "T1", actor_id: "U1", credential_generation: "generation-two" };
@@ -66,7 +66,7 @@ describe("cache coverage and cursors", () => {
   });
 
   it("purges every actor and credential generation for a removed team", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-cache-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-cache-"));
     const cache = new CacheStore(root);
     const identities = [
       { team_id: "T1", actor_id: "U1", credential_generation: "generation-one" },
@@ -91,7 +91,7 @@ describe("cache coverage and cursors", () => {
   });
 
   it("rejects mutation under an already published cache revision", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-cache-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-cache-"));
     const cache = new CacheStore(root);
     const value = snapshot("U1", "generation-one");
     await cache.save(value);
@@ -101,7 +101,7 @@ describe("cache coverage and cursors", () => {
   });
 
   it("never falls back to a legacy team-only snapshot", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-cache-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-cache-"));
     const legacyDirectory = path.join(root, "T1");
     await mkdir(legacyDirectory, { recursive: true });
     await writeFile(path.join(legacyDirectory, "snapshot.json"), `${JSON.stringify(snapshot("U1", "legacy-unsafe"))}\n`, "utf8");
@@ -122,7 +122,7 @@ describe("cache coverage and cursors", () => {
   });
 
   it("forces a sync when the same actor switches credential generations", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-cache-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-cache-"));
     const cache = new CacheStore(root);
     const base = {
       alias: "work", team_id: "T1", team_name: "Acme", actor_id: "U1", timezone: "UTC", kind: "user_token",
@@ -140,7 +140,7 @@ describe("cache coverage and cursors", () => {
     };
     const auth = { async clients() { return { profile: newProfile, public: publicClient }; } } as unknown as AuthService;
 
-    const result = await new SlackAxiApp({ auth, cache }).context("work");
+    const result = await new SlkyApp({ auth, cache }).context("work");
     expect(conversationCalls).toBe(1);
     expect(result.snapshot.credential_generation).toBe("generation-new-2");
     expect(result.snapshot.revision).not.toBe("old-cache");
@@ -210,7 +210,7 @@ describe("cache coverage and cursors", () => {
       },
       async save(value: CacheSnapshot) { saved.push(structuredClone(value)); },
     } as unknown as CacheStore;
-    const app = new SlackAxiApp({ auth: auth as unknown as AuthService, cache, revisionFactory: () => `race-${saved.length + 1}` });
+    const app = new SlkyApp({ auth: auth as unknown as AuthService, cache, revisionFactory: () => `race-${saved.length + 1}` });
 
     const contextPromise = app.context("work");
     await cacheLoadEntered.promise;
@@ -249,7 +249,7 @@ describe("cache coverage and cursors", () => {
     const profile = { alias: "work", team_id: "T1", team_name: "Acme", actor_id: "U1", timezone: "UTC", kind: "user_token", keychain_accounts: ["T1:user:xoxp"], capabilities: {}, created_at: "2026-08-15T10:00:00Z", updated_at: "2026-08-15T10:00:00Z" } as const;
     const auth = { async clients() { return { profile, public: publicClient }; } } as unknown as AuthService;
     const cache = { async save(value: CacheSnapshot) { saved.push(structuredClone(value)); }, async load() { return undefined; } } as unknown as CacheStore;
-    const app = new SlackAxiApp({ auth, cache });
+    const app = new SlkyApp({ auth, cache });
     const result = await app.sync("work", { maxPages: 3 });
     expect(result.snapshot.conversations).toHaveLength(1);
     expect(result.snapshot.coverage.conversations).toMatchObject({ scanned: 1, complete: false, next_cursor: "next-conversations", error: { code: "SLACK_HTTP_ERROR" } });
@@ -281,7 +281,7 @@ describe("cache coverage and cursors", () => {
     } as unknown as CacheStore;
 
     let revision = 0;
-    const result = await new SlackAxiApp({ auth, cache, revisionFactory: () => `progress-${revision += 1}` }).sync("work", { maxPages: 2 });
+    const result = await new SlkyApp({ auth, cache, revisionFactory: () => `progress-${revision += 1}` }).sync("work", { maxPages: 2 });
     const firstPage = saved.find((value) => value.conversations.length === 1)!;
     const query = filterHash({ command: "conversation.list" });
     const integrity = new MemoryCursorIntegrity();
@@ -290,7 +290,7 @@ describe("cache coverage and cursors", () => {
     expect(result.snapshot.conversations).toHaveLength(2);
     expect(new Set(saved.map((value) => value.revision)).size).toBe(saved.length);
     expect(saved.map((value) => value.revision)).toEqual(saved.map((_value, index) => `progress-${index + 2}`));
-    await expect(parseCacheCursor(cursor, result.snapshot, query, "slack-axi conversation list", integrity)).rejects.toThrowError(/stale/i);
+    await expect(parseCacheCursor(cursor, result.snapshot, query, "slky conversation list", integrity)).rejects.toThrowError(/stale/i);
   });
 
   it("persists exact browser inbox totals when every conversation is classified", async () => {
@@ -339,7 +339,7 @@ describe("cache coverage and cursors", () => {
       async load() { return undefined; },
     } as unknown as CacheStore;
 
-    const result = await new SlackAxiApp({ auth, cache }).sync("work", { maxPages: 1 });
+    const result = await new SlkyApp({ auth, cache }).sync("work", { maxPages: 1 });
 
     expect(result.snapshot.inbox).toMatchObject({ unread_conversations: 2, mentions: 2, thread_unread_count: 3, thread_mentions: 2, thread_coverage: "available", exact: true });
     expect(result.snapshot.coverage.inbox).toEqual({ scanned: 2, complete: true });

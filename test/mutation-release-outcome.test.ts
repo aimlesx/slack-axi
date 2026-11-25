@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 import { AuthService } from "../src/auth.js";
 import { ConfigStore } from "../src/config.js";
-import { AxiError } from "../src/errors.js";
+import { SlkyError } from "../src/errors.js";
 import { applyAction, directOrStage } from "../src/mutations.js";
 import { PolicyStore } from "../src/policy.js";
 import type { AuthProfile, Policy } from "../src/types.js";
@@ -25,7 +25,7 @@ class RenameWonActionStore extends ActionStore {
     await super.persistSignedState(filename, value);
     const state = (value as { data?: { state?: unknown } }).data?.state;
     if (state === this.failState) {
-      throw new AxiError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected failure after the state rename became visible." });
+      throw new SlkyError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected failure after the state rename became visible." });
     }
   }
 }
@@ -44,7 +44,7 @@ function failingLock(code: string): { acquire(): Promise<{ owner: Record<string,
     async acquire() {
       return {
         owner: {},
-        async release() { throw new AxiError({ code, message: "Injected release failure." }); },
+        async release() { throw new SlkyError({ code, message: "Injected release failure." }); },
       };
     },
   };
@@ -88,14 +88,14 @@ async function runReleaseFailure(layer: ReleaseLayer, outcome: RemoteOutcome): P
   postMessage: ReturnType<typeof vi.fn>;
   value: Awaited<ReturnType<typeof applyAction>> | undefined;
   error: unknown;
-  app: SlackAxiApp;
+  app: SlkyApp;
   approval: string;
 }> {
-  const root = await mkdtemp(path.join(os.tmpdir(), `slack-axi-${layer}-release-`));
+  const root = await mkdtemp(path.join(os.tmpdir(), `slky-${layer}-release-`));
   const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
   const postMessage = post(outcome);
   const workspace = context(postMessage);
-  let app: SlackAxiApp;
+  let app: SlkyApp;
   let actionId: string;
   let approval: string;
   let operation: Promise<Awaited<ReturnType<typeof applyAction>>>;
@@ -104,7 +104,7 @@ async function runReleaseFailure(layer: ReleaseLayer, outcome: RemoteOutcome): P
     const policy = new PolicyStore(path.join(root, "policy.json"), path.join(root, "project.json"));
     await policy.replace(policyValue());
     (policy as unknown as { lock: unknown }).lock = failingLock("POLICY_LOCK_LOST");
-    app = { actions, policy, async context() { return workspace; } } as unknown as SlackAxiApp;
+    app = { actions, policy, async context() { return workspace; } } as unknown as SlkyApp;
     operation = directOrStage(app, workspace, {
       operation: "message.send",
       targetIds: ["C1"],
@@ -148,7 +148,7 @@ async function runReleaseFailure(layer: ReleaseLayer, outcome: RemoteOutcome): P
         async withContextLease(selector: string | undefined, callback: (leased: WorkspaceContext) => Promise<unknown>) {
           return auth.withCredentialLease(selector, async () => callback(workspace));
         },
-      } as unknown as SlackAxiApp;
+      } as unknown as SlkyApp;
     } else {
       const actionStore = actions as unknown as { acquireLock(id: string): Promise<() => Promise<void>> };
       const originalAcquire = actionStore.acquireLock.bind(actions);
@@ -156,10 +156,10 @@ async function runReleaseFailure(layer: ReleaseLayer, outcome: RemoteOutcome): P
         const release = await originalAcquire(id);
         return async () => {
           await release();
-          throw new AxiError({ code: "ACTION_LOCK_LOST", message: "Injected release failure." });
+          throw new SlkyError({ code: "ACTION_LOCK_LOST", message: "Injected release failure." });
         };
       };
-      app = { actions, policy, async context() { return workspace; } } as unknown as SlackAxiApp;
+      app = { actions, policy, async context() { return workspace; } } as unknown as SlkyApp;
     }
     operation = applyAction(app, action, action.approval);
   }
@@ -204,17 +204,17 @@ describe("mutation outcome survives lease release failures", () => {
 
 describe("durable outcome survives sensitive-content cleanup failures", () => {
   it.each(["applied", "unknown"] as const)("keeps %s authoritative and repairs content on the next load", async (outcome) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-content-cleanup-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-content-cleanup-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const action = await plan(actions);
     const postMessage = post(outcome);
     const workspace = context(postMessage);
-    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlackAxiApp;
+    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlkyApp;
     const originalCleanup = actions.cleanupContent.bind(actions);
     let attempts = 0;
     vi.spyOn(actions, "cleanupContent").mockImplementation(async (id) => {
       attempts += 1;
-      if (attempts === 1) throw new AxiError({ code: "CONTENT_CLEANUP_FAILED", message: "Injected cleanup failure." });
+      if (attempts === 1) throw new SlkyError({ code: "CONTENT_CLEANUP_FAILED", message: "Injected cleanup failure." });
       return originalCleanup(id);
     });
 
@@ -241,12 +241,12 @@ describe("durable outcome survives sensitive-content cleanup failures", () => {
 
 describe("state persistence recognizes a rename that won before fsync failed", () => {
   it.each(["applied", "unknown"] as const)("preserves the exact signed %s revision", async (outcome) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-state-rename-won-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-state-rename-won-"));
     const actions = new RenameWonActionStore(root, new MemorySecrets(), outcome);
     const action = await plan(actions);
     const postMessage = post(outcome);
     const workspace = context(postMessage);
-    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlackAxiApp;
+    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlkyApp;
 
     if (outcome === "applied") {
       await expect(applyAction(app, action, action.approval)).resolves.toMatchObject({ state: "applied" });
@@ -260,12 +260,12 @@ describe("state persistence recognizes a rename that won before fsync failed", (
   });
 
   it("never dispatches when a planned-to-applying durability sync fails after rename", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-applying-rename-won-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-applying-rename-won-"));
     const actions = new RenameWonActionStore(root, new MemorySecrets(), "applying");
     const action = await plan(actions);
     const postMessage = post("applied");
     const workspace = context(postMessage);
-    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlackAxiApp;
+    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlkyApp;
 
     await expect(applyAction(app, action, action.approval)).rejects.toMatchObject({ code: "DIRECTORY_FSYNC_FAILED" });
     expect(postMessage).not.toHaveBeenCalled();
@@ -273,7 +273,7 @@ describe("state persistence recognizes a rename that won before fsync failed", (
   });
 
   it("never dispatches when a partial-to-applying durability sync fails after rename", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-partial-rename-won-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-partial-rename-won-"));
     const secrets = new MemorySecrets();
     const setup = new ActionStore(root, secrets);
     const action = await plan(setup);
@@ -282,7 +282,7 @@ describe("state persistence recognizes a rename that won before fsync failed", (
     const actions = new RenameWonActionStore(root, secrets, "applying");
     const postMessage = post("applied");
     const workspace = context(postMessage);
-    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlackAxiApp;
+    const app = { actions, policy: { async validateUnfurls() {} }, async context() { return workspace; } } as unknown as SlkyApp;
 
     await expect(applyAction(app, partial, partial.approval)).rejects.toMatchObject({ code: "DIRECTORY_FSYNC_FAILED" });
     expect(postMessage).not.toHaveBeenCalled();

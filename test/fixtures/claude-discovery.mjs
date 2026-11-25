@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Fixture entry point for fresh Claude sessions. Put a symlink named slack-axi
-// on PATH and supply an empty directory in SLACK_AXI_FIXTURE_DIR.
+// Fixture entry point for fresh Claude sessions. Put a symlink named slky
+// on PATH and supply an empty directory in SLKY_FIXTURE_DIR.
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { ActionStore } from "../../dist/actions.js";
-import { SlackAxiApp } from "../../dist/app.js";
+import { SlkyApp } from "../../dist/app.js";
 import { cacheIdentity } from "../../dist/cache.js";
 import { createProgram } from "../../dist/cli.js";
 import { PolicyStore } from "../../dist/policy.js";
 
-const directory = process.env.SLACK_AXI_FIXTURE_DIR;
-if (!directory || !path.isAbsolute(directory)) throw new Error("Set SLACK_AXI_FIXTURE_DIR to an absolute fixture directory.");
+const directory = process.env.SLKY_FIXTURE_DIR;
+if (!directory || !path.isAbsolute(directory)) throw new Error("Set SLKY_FIXTURE_DIR to an absolute fixture directory.");
 const record = (event) => appendFileSync(path.join(directory, "events.jsonl"), JSON.stringify(event) + "\n");
 const channel = { id: "C101", name: "release", is_channel: true, is_ext_shared: false };
 const ts = "1795502711.000042";
@@ -57,7 +57,7 @@ const config = {
   },
 };
 const secrets = { async get() { return Buffer.alloc(32, 0x71).toString("base64url"); } };
-const app = new SlackAxiApp({
+const app = new SlkyApp({
   config, secrets,
   cache: { async load() { return snapshot; } },
   auth: { async clients(selector) { return { profile: await config.resolve(selector), public: provider }; } },

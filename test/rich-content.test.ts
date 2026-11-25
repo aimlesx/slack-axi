@@ -1,6 +1,6 @@
 import { decode } from "@toon-format/toon";
 import { describe, expect, it, vi } from "vitest";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import { createProgram } from "../src/cli.js";
 import { messageRichFields } from "../src/rich-content.js";
 
@@ -35,15 +35,15 @@ function appWithCard() {
     conversations: [{ id: "C1", name: "general" }], userMap: new Map(), users: [],
     snapshot: { credential_generation: "v1", coverage: { users: { complete: true }, conversations: { complete: true } } },
     public: slack,
-  }) } as unknown as SlackAxiApp;
+  }) } as unknown as SlkyApp;
   return { app, messageByTs, searchMessages };
 }
 
-async function run(app: SlackAxiApp, args: string[], format = "json") {
+async function run(app: SlkyApp, args: string[], format = "json") {
   const chunks: string[] = [];
   const write = vi.spyOn(process.stdout, "write").mockImplementation((data) => { chunks.push(String(data)); return true; });
   try {
-    await createProgram(app).parseAsync(["node", "slack-axi", "--output", format, ...args]);
+    await createProgram(app).parseAsync(["node", "slky", "--output", format, ...args]);
   } finally {
     write.mockRestore();
   }
@@ -95,7 +95,7 @@ describe("rich message content", () => {
   it("gives a fallback-only search hit its exact scoped detail command without fetching the message", async () => {
     const { app, messageByTs, searchMessages } = appWithCard();
     const result = await run(app, ["search", "messages", "failed", "--fields", "ref,detail_command"]);
-    expect(result.data.messages).toEqual([{ ref, detail_command: `slack-axi message get ${ref} --full --workspace work` }]);
+    expect(result.data.messages).toEqual([{ ref, detail_command: `slky message get ${ref} --full --workspace work` }]);
     expect(searchMessages).toHaveBeenCalledOnce();
     expect(messageByTs).not.toHaveBeenCalled();
   });

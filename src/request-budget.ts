@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 
 export interface SlackRequestBudget {
   limit: number;
@@ -21,6 +21,6 @@ export function slackRequestAvailable(): boolean {
 export function countSlackRequest(): void {
   const budget = currentBudget.getStore();
   if (!budget) return;
-  if (budget.used >= budget.limit) throw new AxiError({ code: "SLACK_REQUEST_BUDGET_EXHAUSTED", message: "The command reached its Slack request limit." });
+  if (budget.used >= budget.limit) throw new SlkyError({ code: "SLACK_REQUEST_BUDGET_EXHAUSTED", message: "The command reached its Slack request limit." });
   budget.used += 1;
 }

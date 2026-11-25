@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const expectedPackageFiles = [
   "dist/**/*.js",
-  "completions/_slack-axi",
-  "completions/slack-axi.bash",
-  "docs/slack-axi.1",
-  "skills/slack-axi/SKILL.md",
+  "completions/_slky",
+  "completions/slky.bash",
+  "docs/slky.1",
+  "skills/slky/SKILL.md",
   "slack-app-manifest.json",
   "npm-shrinkwrap.json",
   "README.md",
@@ -55,7 +55,7 @@ describe("package contract", () => {
     expect(workflow).toContain("macos-15");
     expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("npm install --prefix");
-    expect(workflow).toContain("node_modules/.bin/slack-axi");
+    expect(workflow).toContain("node_modules/.bin/slky");
     expect(workflow).not.toMatch(/uses:\s+[^\s]+@v\d/);
   });
 
@@ -96,12 +96,12 @@ describe("package contract", () => {
     expect(workflow).toContain("npm audit --audit-level=low");
     expect(workflow).toContain("npm pack --json");
     expect(workflow).toContain('npm install --prefix "$install_root"');
-    expect(workflow).toContain('node_modules/.bin/slack-axi');
+    expect(workflow).toContain('node_modules/.bin/slky');
     expect(workflow).toContain("release runner is not clean");
     expect(workflow).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
     expect(workflow).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c");
     expect(workflow).toContain("EXPECTED_SHA256");
-    expect(workflow).toContain('"status": "setup_required"');
+    expect(workflow).toContain('.schema == "slky/v1" and .data.status == "setup_required"');
     expect(workflow).toContain("npm publish");
     expect(publishJob).toContain('test "$(npm --version)" = "11.16.0"');
     expect(workflow).toContain("--access public --provenance");
@@ -114,13 +114,17 @@ describe("package contract", () => {
 
   it("publishes only the public runtime surface with public-source release metadata", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+    const shrinkwrap = JSON.parse(await readFile("npm-shrinkwrap.json", "utf8"));
+    expect(packageJson.name).toBe("slky");
+    expect(packageJson.bin).toEqual({ slky: "dist/index.js" });
+    expect(shrinkwrap).toMatchObject({ name: packageJson.name, version: packageJson.version });
+    expect(shrinkwrap.packages[""]).toMatchObject({ name: packageJson.name, version: packageJson.version, bin: packageJson.bin });
     expect(packageJson.files).toEqual(expectedPackageFiles);
-    expect(packageJson.man).toBe("docs/slack-axi.1");
+    expect(packageJson.man).toBe("docs/slky.1");
     expect(packageJson.publishConfig).toEqual({ access: "public", provenance: true });
-    expect(packageJson.repository).toEqual({ type: "git", url: "git+https://github.com/aimlesx/slack-axi.git" });
-    expect(packageJson.homepage).toBe("https://github.com/aimlesx/slack-axi#readme");
-    expect(packageJson.bugs).toEqual({ url: "https://github.com/aimlesx/slack-axi/issues" });
-    await expect(access("npm-shrinkwrap.json")).resolves.toBeUndefined();
+    expect(packageJson.repository).toEqual({ type: "git", url: "git+https://github.com/aimlesx/slky.git" });
+    expect(packageJson.homepage).toBe("https://github.com/aimlesx/slky#readme");
+    expect(packageJson.bugs).toEqual({ url: "https://github.com/aimlesx/slky/issues" });
     await expect(access("package-lock.json")).rejects.toMatchObject({ code: "ENOENT" });
   });
 

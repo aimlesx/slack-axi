@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
-import { AxiError } from "../src/errors.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
+import { SlkyError } from "../src/errors.js";
 import { directOrStage } from "../src/mutations.js";
 import { PolicyStore } from "../src/policy.js";
 import type { Policy } from "../src/types.js";
@@ -40,10 +40,10 @@ class FailingPolicyStore extends PolicyStore {
     const failure = this.failure;
     this.failure = undefined;
     if (failure === "before_rename") {
-      throw new AxiError({ code: "POLICY_WRITE_FAILED", message: "Injected failure before the policy rename." });
+      throw new SlkyError({ code: "POLICY_WRITE_FAILED", message: "Injected failure before the policy rename." });
     }
     await super.persistPolicyFile(filename, failure === "unexpected_target" ? policyValue(true, true) : value);
-    throw new AxiError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected failure after the policy rename became visible." });
+    throw new SlkyError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected failure after the policy rename became visible." });
   }
 }
 
@@ -52,7 +52,7 @@ function failingLock(): { acquire(): Promise<{ owner: Record<string, unknown>; r
     async acquire() {
       return {
         owner: {},
-        async release() { throw new AxiError({ code: "POLICY_LOCK_LOST", message: "Injected release failure." }); },
+        async release() { throw new SlkyError({ code: "POLICY_LOCK_LOST", message: "Injected release failure." }); },
       };
     },
   };
@@ -76,7 +76,7 @@ function workspace(postMessage: ReturnType<typeof vi.fn>): WorkspaceContext {
 async function directSend(policy: PolicyStore, root: string, postMessage: ReturnType<typeof vi.fn>) {
   const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
   const context = workspace(postMessage);
-  const app = { actions, policy, async context() { return context; } } as unknown as SlackAxiApp;
+  const app = { actions, policy, async context() { return context; } } as unknown as SlkyApp;
   return directOrStage(app, context, {
     operation: "message.send",
     targetIds: ["C1"],
@@ -89,7 +89,7 @@ async function directSend(policy: PolicyStore, root: string, postMessage: Return
 
 describe("policy commit boundaries", () => {
   it("recognizes an exact grant whose rename won, then permits exactly one direct dispatch", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-rename-won-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-rename-won-"));
     const filename = path.join(root, "policy.json");
     const policy = new FailingPolicyStore(filename, path.join(root, "project.json"));
     await policy.replace(policyValue(false));
@@ -105,7 +105,7 @@ describe("policy commit boundaries", () => {
   });
 
   it("leaves a durable fail-closed fence when neither target nor prior state is visible", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-unknown-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-unknown-"));
     const filename = path.join(root, "policy.json");
     const policy = new FailingPolicyStore(filename, path.join(root, "project.json"));
     await policy.replace(policyValue(false));
@@ -128,7 +128,7 @@ describe("policy commit boundaries", () => {
   });
 
   it("reports an ordinary write failure only after restoring the exact prior policy record", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-prior-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-prior-"));
     const filename = path.join(root, "policy.json");
     const policy = new FailingPolicyStore(filename, path.join(root, "project.json"));
     await policy.replace(policyValue(true));
@@ -141,7 +141,7 @@ describe("policy commit boundaries", () => {
   });
 
   it("returns the committed grant when releasing the policy lease fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-release-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-release-"));
     const policy = new PolicyStore(path.join(root, "policy.json"), path.join(root, "project.json"));
     (policy as unknown as { lock: unknown }).lock = failingLock();
 
@@ -157,14 +157,14 @@ describe("policy commit boundaries", () => {
   });
 
   it("recognizes an exact initialized policy and preserves init success across release failure", async () => {
-    const renameRoot = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-init-rename-"));
+    const renameRoot = await mkdtemp(path.join(os.tmpdir(), "slky-policy-init-rename-"));
     const renameFile = path.join(renameRoot, "policy.json");
     const renamed = new FailingPolicyStore(renameFile, path.join(renameRoot, "project.json"));
     renamed.arm("rename_won");
     await expect(renamed.init()).resolves.toEqual(policyValue(false));
     await expect(renamed.load()).resolves.toEqual(policyValue(false));
 
-    const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-init-release-"));
+    const releaseRoot = await mkdtemp(path.join(os.tmpdir(), "slky-policy-init-release-"));
     const released = new PolicyStore(path.join(releaseRoot, "policy.json"), path.join(releaseRoot, "project.json"));
     (released as unknown as { lock: unknown }).lock = failingLock();
     await expect(released.init()).resolves.toEqual(policyValue(false));

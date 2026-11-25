@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const execute = promisify(execFile);
 const fixture = path.resolve("test/fixtures/claude-discovery.mjs");
-const skill = path.resolve("skills/slack-axi");
+const skill = path.resolve("skills/slky");
 const ref = "T100/C101/1795502711.000042";
 const permalink = "https://orchid-fixture.slack.com/archives/C101/p1795502711000042";
 const searchPrompt = "Find the Slack discussion about the Orchid rollout. What decision did the team make? Please link the decision.";
@@ -18,18 +18,18 @@ describe("Claude Code discovery", () => {
   let project: string;
   let state: string;
   let executable: string;
-  let environment: { SLACK_AXI_FIXTURE_DIR: string; PATH: string };
+  let environment: { SLKY_FIXTURE_DIR: string; PATH: string };
 
   beforeEach(async () => {
-    directory = await mkdtemp(path.join(tmpdir(), "axi-claude-"));
+    directory = await mkdtemp(path.join(tmpdir(), "slky-claude-"));
     project = path.join(directory, "project");
     state = path.join(directory, "state");
     const bin = path.join(directory, "bin");
-    executable = path.join(bin, "slack-axi");
+    executable = path.join(bin, "slky");
     const skills = path.join(project, ".claude", "skills");
     await Promise.all([mkdir(skills, { recursive: true }), mkdir(bin), mkdir(state)]);
-    await Promise.all([symlink(fixture, executable), symlink(skill, path.join(skills, "slack-axi"))]);
-    environment = { SLACK_AXI_FIXTURE_DIR: state, PATH: bin + path.delimiter + process.env.PATH };
+    await Promise.all([symlink(fixture, executable), symlink(skill, path.join(skills, "slky"))]);
+    environment = { SLKY_FIXTURE_DIR: state, PATH: bin + path.delimiter + process.env.PATH };
     await writeFile(path.join(project, ".claude", "settings.local.json"), JSON.stringify({ env: environment }));
   });
 
@@ -77,14 +77,14 @@ describe("Claude Code discovery", () => {
     expect(await providerCalls()).toEqual(["searchMessages", "messageByTs", "permalink"]);
   });
 
-  // Opt in with SLACK_AXI_CLAUDE_E2E=1. Requires the operator's Claude Code login.
-  it.skipIf(process.env.SLACK_AXI_CLAUDE_E2E !== "1").each([
+  // Opt in with SLKY_CLAUDE_E2E=1. Requires the operator's Claude Code login.
+  it.skipIf(process.env.SLKY_CLAUDE_E2E !== "1").each([
     ["citation", searchPrompt], ["draft", draftPrompt],
   ])("discovers the skill in a fresh session for %s", async (task, prompt) => {
     const { stdout } = await execute("claude", [
       "-p", "--output-format", "json", "--permission-prompts", "none", "--no-session-persistence",
       "--setting-sources", "project,local", "--strict-mcp-config", "--tools", "Skill,Bash",
-      "--allowedTools", "Skill", "Bash(slack-axi:*)", "--", prompt,
+      "--allowedTools", "Skill", "Bash(slky:*)", "--", prompt,
     ], { cwd: project, env: { ...process.env, ...environment }, timeout: 150_000 });
     const result = JSON.parse(stdout);
     expect(result.is_error, result.result).toBe(false);

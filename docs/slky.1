@@ -1,11 +1,11 @@
-.TH SLACK-AXI 1 "August 19, 2026" "slack-axi-cli 0.1.0" "User Commands"
+.TH SLKY 1 "November 25, 2026" "slky 0.2.0" "User Commands"
 .SH NAME
-slack-axi - agent-facing Slack CLI with bounded reads and signed staged writes
+slky - agent-facing Slack CLI with bounded reads and signed staged writes
 .SH SYNOPSIS
-.B slack-axi
+.B slky
 [global options] command [command options]
 .SH DESCRIPTION
-Every stdout path is one slack-axi/v1 envelope encoded as strict TOON by default, or JSON/JSONL when requested. Operational failures exit 1 and invalid usage exits 2. Diagnostics appear on stderr only with --verbose.
+Every stdout path is one slky/v1 envelope encoded as strict TOON by default, or JSON/JSONL when requested. Operational failures exit 1 and invalid usage exits 2. Diagnostics appear on stderr only with --verbose.
 .SH GLOBAL OPTIONS
 --workspace selects a configured alias or team ID. --output defaults to toon. --fields validates command-specific field names. --limit bounds collections. --cursor continues stable pages. --full expands long text. --verbose enables redacted diagnostics.
 .SH COMMANDS
@@ -16,10 +16,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth list
+slky auth list
 .fi
 .nf
-slack-axi auth doctor --workspace work
+slky auth doctor --workspace work
 .fi
 .SS AUTH ADD
 Import one bounded browser-session or user-token JSON object from stdin into macOS Keychain.
@@ -28,10 +28,10 @@ Defaults: browser mode with exact xoxc and xoxd fields; stdin is capped at 16,38
 .br
 Incompatible combinations: --browser is an explicit synonym for the default and conflicts with --user-token; credentials are accepted only through --from-stdin and never through argv.
 .nf
-slack-axi auth add work --from-stdin < /secure/path/browser-session.json
+slky auth add work --from-stdin < /secure/path/browser-session.json
 .fi
 .nf
-slack-axi auth add work --user-token --from-stdin < /secure/path/user-token.json
+slky auth add work --user-token --from-stdin < /secure/path/user-token.json
 .fi
 .SS AUTH LIST
 List configured workspaces without reading credentials.
@@ -40,10 +40,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth list
+slky auth list
 .fi
 .nf
-slack-axi auth list --output json
+slky auth list --output json
 .fi
 .SS AUTH USE
 Select the default workspace.
@@ -52,10 +52,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth use work
+slky auth use work
 .fi
 .nf
-slack-axi auth use T012ABC
+slky auth use T012ABC
 .fi
 .SS AUTH REVOKE
 Stage revocation of one imported xoxp user token.
@@ -64,10 +64,10 @@ Defaults: staged only; browser sessions must be terminated in Slack before local
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth revoke work
+slky auth revoke work
 .fi
 .nf
-slack-axi auth revoke T012ABC --workspace T012ABC
+slky auth revoke T012ABC --workspace T012ABC
 .fi
 .SS AUTH REMOVE
 Remove a local workspace, its Keychain credentials, caches, and action records.
@@ -76,10 +76,10 @@ Defaults: does not terminate a browser session, revoke a user token, or uninstal
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth remove work
+slky auth remove work
 .fi
 .nf
-slack-axi auth remove T012ABC
+slky auth remove T012ABC
 .fi
 .SS AUTH DOCTOR
 Independently probe and persist public and browser-private Slack capabilities.
@@ -88,10 +88,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi auth doctor
+slky auth doctor
 .fi
 .nf
-slack-axi auth doctor --workspace work
+slky auth doctor --workspace work
 .fi
 .SS SYNC
 Refresh bounded workspace entity and inbox caches.
@@ -100,10 +100,10 @@ Defaults: two pages per paged source
 .br
 Incompatible combinations: --all requires --max-pages <1..100>; --max-pages is invalid without --all.
 .nf
-slack-axi sync --workspace work
+slky sync --workspace work
 .fi
 .nf
-slack-axi sync --all --max-pages 20 --workspace work
+slky sync --all --max-pages 20 --workspace work
 .fi
 .SS CONVERSATION
 Discover and inspect channels and DMs.
@@ -112,10 +112,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi conversation list
+slky conversation list
 .fi
 .nf
-slack-axi conversation get '#eng'
+slky conversation get '#eng'
 .fi
 .SS CONVERSATION LIST
 List cached conversations with authoritative coverage.
@@ -124,10 +124,10 @@ Defaults: --limit 20; archived conversations excluded
 .br
 Incompatible combinations: None.
 .nf
-slack-axi conversation list
+slky conversation list
 .fi
 .nf
-slack-axi conversation list --type channel --query eng --limit 20
+slky conversation list --type channel --query eng --limit 20
 .fi
 .SS CONVERSATION GET
 Fetch one conversation detail record.
@@ -136,10 +136,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi conversation get C012ABC
+slky conversation get C012ABC
 .fi
 .nf
-slack-axi conversation get '#eng' --fields id,name,topic
+slky conversation get '#eng' --fields id,name,topic
 .fi
 .SS CONVERSATION RESOLVE
 Resolve a conversation selector to a stable ID.
@@ -148,10 +148,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi conversation resolve '#eng'
+slky conversation resolve '#eng'
 .fi
 .nf
-slack-axi conversation resolve C012ABC
+slky conversation resolve C012ABC
 .fi
 .SS CONVERSATION MEMBERS
 List a bounded page of conversation members with cumulative scan accounting.
@@ -160,10 +160,10 @@ Defaults: --limit 100; continuation cursors carry the cumulative scanned count
 .br
 Incompatible combinations: None.
 .nf
-slack-axi conversation members '#eng'
+slky conversation members '#eng'
 .fi
 .nf
-slack-axi conversation members C012ABC --limit 100 --fields id,display_name,email,timezone
+slky conversation members C012ABC --limit 100 --fields id,display_name,email,timezone
 .fi
 .SS USER
 Discover Slack users.
@@ -172,10 +172,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi user search alice
+slky user search alice
 .fi
 .nf
-slack-axi user get U012ABC
+slky user get U012ABC
 .fi
 .SS USER SEARCH
 Search cached users with explicit source coverage.
@@ -184,10 +184,10 @@ Defaults: --limit 20
 .br
 Incompatible combinations: None.
 .nf
-slack-axi user search alice
+slky user search alice
 .fi
 .nf
-slack-axi user search alice --fields id,name,display_name
+slky user search alice --fields id,name,display_name
 .fi
 .SS USER GET
 Fetch one user detail record.
@@ -196,10 +196,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi user get U012ABC
+slky user get U012ABC
 .fi
 .nf
-slack-axi user get @alice --fields id,display_name,timezone
+slky user get @alice --fields id,display_name,timezone
 .fi
 .SS USERGROUP
 Inspect Slack user groups.
@@ -208,10 +208,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi usergroup list
+slky usergroup list
 .fi
 .nf
-slack-axi usergroup members S012ABC
+slky usergroup members S012ABC
 .fi
 .SS USERGROUP LIST
 List a bounded page of normalized active user groups.
@@ -220,10 +220,10 @@ Defaults: --limit 20; continuation cursors are bound to the exact returned user-
 .br
 Incompatible combinations: None.
 .nf
-slack-axi usergroup list
+slky usergroup list
 .fi
 .nf
-slack-axi usergroup list --limit 50 --fields id,handle,name
+slky usergroup list --limit 50 --fields id,handle,name
 .fi
 .SS USERGROUP MEMBERS
 List a bounded page of one user group's members.
@@ -232,10 +232,10 @@ Defaults: --limit 20; continuation cursors are bound to the exact returned membe
 .br
 Incompatible combinations: None.
 .nf
-slack-axi usergroup members S012ABC
+slky usergroup members S012ABC
 .fi
 .nf
-slack-axi usergroup members S012ABC --limit 100 --fields id,display_name,email,timezone
+slky usergroup members S012ABC --limit 100 --fields id,display_name,email,timezone
 .fi
 .SS EMOJI
 Search workspace emoji.
@@ -244,10 +244,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi emoji search party
+slky emoji search party
 .fi
 .nf
-slack-axi emoji search deploy --limit 10
+slky emoji search deploy --limit 10
 .fi
 .SS EMOJI SEARCH
 Search cached workspace emoji.
@@ -256,10 +256,10 @@ Defaults: --limit 20
 .br
 Incompatible combinations: None.
 .nf
-slack-axi emoji search party
+slky emoji search party
 .fi
 .nf
-slack-axi emoji search party --limit 10
+slky emoji search party --limit 10
 .fi
 .SS READ
 Read a bounded conversation timeline and optionally expand in-window threads.
@@ -268,16 +268,16 @@ Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters
 .br
 Incompatible combinations: Use only one of --since, --from, or --on; --on also conflicts with --to. --max-requests requires --include-threads.
 .nf
-slack-axi read '#eng' --since 24h
+slky read '#eng' --since 24h
 .fi
 .nf
-slack-axi read C012ABC --on 2026-08-15
+slky read C012ABC --on 2026-08-15
 .fi
 .nf
-slack-axi read C012ABC --since 6h --include-threads --max-requests 10
+slky read C012ABC --since 6h --include-threads --max-requests 10
 .fi
 .nf
-slack-axi read C012ABC --from 2026-08-15T09:00:00+02:00 --to 2026-08-15T17:00:00+02:00
+slky read C012ABC --from 2026-08-15T09:00:00+02:00 --to 2026-08-15T17:00:00+02:00
 .fi
 .SS THREAD
 Read a bounded page of one Slack thread.
@@ -286,10 +286,10 @@ Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters
 .br
 Incompatible combinations: None.
 .nf
-slack-axi thread T012ABC/C034DEF/1786712345.001200
+slky thread T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi thread T012ABC/C034DEF/1786712345.001200 --full
+slky thread T012ABC/C034DEF/1786712345.001200 --full
 .fi
 .SS SEARCH
 Search Slack messages or files with bounded results.
@@ -298,10 +298,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi search messages incident
+slky search messages incident
 .fi
 .nf
-slack-axi search files roadmap
+slky search files roadmap
 .fi
 .SS SEARCH MESSAGES
 Search messages with optional Slack-native filters.
@@ -310,10 +310,10 @@ Defaults: --limit 20; --sort score; one result page
 .br
 Incompatible combinations: --all requires --max-results; --max-results is invalid without --all; --limit conflicts with --all; --after must be earlier than --before.
 .nf
-slack-axi search messages regression --in '#eng'
+slky search messages regression --in '#eng'
 .fi
 .nf
-slack-axi search messages incident --all --max-results 250 --sort timestamp
+slky search messages incident --all --max-results 250 --sort timestamp
 .fi
 .SS SEARCH FILES
 Search files with normalized bounded rows.
@@ -322,10 +322,10 @@ Defaults: --limit 20; --sort score; one result page
 .br
 Incompatible combinations: --all requires --max-results; --max-results is invalid without --all; --limit conflicts with --all; --after must be earlier than --before.
 .nf
-slack-axi search files roadmap
+slky search files roadmap
 .fi
 .nf
-slack-axi search files report --all --max-results 100
+slky search files report --all --max-results 100
 .fi
 .SS INBOX
 Summarize unread timeline and thread activity with browser-session counts or a bounded user-token fallback.
@@ -334,13 +334,13 @@ Defaults: --limit 20; muted conversations excluded in browser mode; user-token m
 .br
 Incompatible combinations: --partner-only conflicts with --internal-only; --dm-only conflicts with a non-DM --type.
 .nf
-slack-axi inbox --mentions-only
+slky inbox --mentions-only
 .fi
 .nf
-slack-axi inbox --partner-only --limit 20
+slky inbox --partner-only --limit 20
 .fi
 .nf
-slack-axi inbox --dm-only --include-muted
+slky inbox --dm-only --include-muted
 .fi
 .SS CATCHUP
 Summarize recent activity across bounded conversations.
@@ -349,10 +349,10 @@ Defaults: --since 24h; --max-conversations 20 (maximum 50); --per-conversation 5
 .br
 Incompatible combinations: None.
 .nf
-slack-axi catchup --since 24h
+slky catchup --since 24h
 .fi
 .nf
-slack-axi catchup --conversation '#eng' --conversation C034DEF
+slky catchup --conversation '#eng' --conversation C034DEF
 .fi
 .SS MESSAGE
 Inspect, cite, stage, and send messages.
@@ -361,10 +361,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi message get T012ABC/C034DEF/1786712345.001200
+slky message get T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi message send --to '#eng' --text 'Ready'
+slky message send --to '#eng' --text 'Ready'
 .fi
 .SS MESSAGE GET
 Fetch a root message or thread reply by stable reference.
@@ -373,10 +373,10 @@ Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters
 .br
 Incompatible combinations: None.
 .nf
-slack-axi message get T012ABC/C034DEF/1786712345.001200
+slky message get T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi message get T012ABC/C034DEF/1786712345.001200 --full
+slky message get T012ABC/C034DEF/1786712345.001200 --full
 .fi
 .SS MESSAGE CITE
 Build citations for up to 50 message references.
@@ -385,10 +385,10 @@ Defaults: message text previews are capped at 600 Unicode characters
 .br
 Incompatible combinations: None.
 .nf
-slack-axi message cite T012ABC/C034DEF/1786712345.001200
+slky message cite T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi message cite T012ABC/C034DEF/1786712345.001200 T012ABC/C034DEF/1786712350.001201 --full
+slky message cite T012ABC/C034DEF/1786712345.001200 T012ABC/C034DEF/1786712350.001201 --full
 .fi
 .SS MESSAGE SEND
 Stage or directly apply one message send.
@@ -397,13 +397,13 @@ Defaults: staged only; unfurls disabled; message text is limited to 40,000 Unico
 .br
 Incompatible combinations: Choose exactly one of --text or --text-file.
 .nf
-slack-axi message send --to '#eng' --text 'Ready'
+slky message send --to '#eng' --text 'Ready'
 .fi
 .nf
-slack-axi message send --to @alice --text-file ./note.txt
+slky message send --to @alice --text-file ./note.txt
 .fi
 .nf
-slack-axi message send --to C034DEF --text '<!here> deploy paused' --allow-broadcast
+slky message send --to C034DEF --text '<!here> deploy paused' --allow-broadcast
 .fi
 .SS MESSAGE REPLY
 Stage or directly apply one thread reply.
@@ -412,13 +412,13 @@ Defaults: staged only; unfurls disabled; message text is limited to 40,000 Unico
 .br
 Incompatible combinations: Choose exactly one of --text or --text-file; --to and --thread must name the same conversation.
 .nf
-slack-axi message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text 'Fixed'
+slky message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text 'Fixed'
 .fi
 .nf
-slack-axi message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text-file -
+slky message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text-file -
 .fi
 .nf
-slack-axi message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text '<!subteam^S012ABC> please review' --allow-broadcast
+slky message reply --to C034DEF --thread T012ABC/C034DEF/1786712345.001200 --text '<!subteam^S012ABC> please review' --allow-broadcast
 .fi
 .SS REACTION
 Inspect or safely mutate message reactions.
@@ -427,10 +427,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi reaction list T012ABC/C034DEF/1786712345.001200
+slky reaction list T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi reaction add T012ABC/C034DEF/1786712345.001200 eyes
+slky reaction add T012ABC/C034DEF/1786712345.001200 eyes
 .fi
 .SS REACTION LIST
 List normalized reactions on one message.
@@ -439,10 +439,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi reaction list T012ABC/C034DEF/1786712345.001200
+slky reaction list T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi reaction list T012ABC/C034DEF/1786712345.001200 --output json
+slky reaction list T012ABC/C034DEF/1786712345.001200 --output json
 .fi
 .SS REACTION ADD
 Stage or apply adding one reaction.
@@ -451,10 +451,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi reaction add T012ABC/C034DEF/1786712345.001200 eyes
+slky reaction add T012ABC/C034DEF/1786712345.001200 eyes
 .fi
 .nf
-slack-axi reaction add T012ABC/C034DEF/1786712345.001200 white_check_mark --apply
+slky reaction add T012ABC/C034DEF/1786712345.001200 white_check_mark --apply
 .fi
 .SS REACTION REMOVE
 Stage or apply removing one reaction.
@@ -463,10 +463,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi reaction remove T012ABC/C034DEF/1786712345.001200 eyes
+slky reaction remove T012ABC/C034DEF/1786712345.001200 eyes
 .fi
 .nf
-slack-axi reaction remove T012ABC/C034DEF/1786712345.001200 eyes --apply
+slky reaction remove T012ABC/C034DEF/1786712345.001200 eyes --apply
 .fi
 .SS FILE
 Inspect, download, or safely upload Slack files.
@@ -475,10 +475,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi file info F012ABC
+slky file info F012ABC
 .fi
 .nf
-slack-axi file get F012ABC --out ./report.pdf
+slky file get F012ABC --out ./report.pdf
 .fi
 .SS FILE INFO
 Fetch normalized Slack file metadata.
@@ -487,10 +487,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi file info F012ABC
+slky file info F012ABC
 .fi
 .nf
-slack-axi file info F012ABC --fields id,name,size,mimetype
+slky file info F012ABC --fields id,name,size,mimetype
 .fi
 .SS FILE GET
 Download one Slack file with streaming byte limits and atomic no-clobber semantics.
@@ -499,10 +499,10 @@ Defaults: existing destinations are preserved unless --overwrite is supplied
 .br
 Incompatible combinations: None.
 .nf
-slack-axi file get F012ABC --out ./report.pdf
+slky file get F012ABC --out ./report.pdf
 .fi
 .nf
-slack-axi file get F012ABC --out ./report.pdf --max-bytes 2147483648 --overwrite
+slky file get F012ABC --out ./report.pdf --max-bytes 2147483648 --overwrite
 .fi
 .SS FILE UPLOAD
 Stage a bounded immutable snapshot for upload.
@@ -511,13 +511,13 @@ Defaults: staged only; --max-bytes 1073741824 (maximum 5368709120); comments are
 .br
 Incompatible combinations: None.
 .nf
-slack-axi file upload ./report.pdf --to '#eng'
+slky file upload ./report.pdf --to '#eng'
 .fi
 .nf
-slack-axi file upload ./report.pdf --to C034DEF --thread T012ABC/C034DEF/1786712345.001200
+slky file upload ./report.pdf --to C034DEF --thread T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi file upload ./report.pdf --to C034DEF --max-bytes 2147483648
+slky file upload ./report.pdf --to C034DEF --max-bytes 2147483648
 .fi
 .SS MARK-READ
 Stage or apply a conversation read marker.
@@ -526,10 +526,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi mark-read '#eng'
+slky mark-read '#eng'
 .fi
 .nf
-slack-axi mark-read C034DEF --through T012ABC/C034DEF/1786712345.001200
+slky mark-read C034DEF --through T012ABC/C034DEF/1786712345.001200
 .fi
 .SS LATER
 Use browser-only, private, best-effort Slack Later workflows.
@@ -538,10 +538,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi later list
+slky later list
 .fi
 .nf
-slack-axi later complete T012ABC/C034DEF/1786712345.001200
+slky later complete T012ABC/C034DEF/1786712345.001200
 .fi
 .SS LATER LIST
 List a bounded, schema-gated page of saved Slack Later items.
@@ -550,10 +550,10 @@ Defaults: --limit 20; browser authentication required; continuation cursors carr
 .br
 Incompatible combinations: None.
 .nf
-slack-axi later list
+slky later list
 .fi
 .nf
-slack-axi later list --limit 50
+slky later list --limit 50
 .fi
 .SS LATER COMPLETE
 Stage or apply completion of one browser-only Later item.
@@ -562,10 +562,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi later complete T012ABC/C034DEF/1786712345.001200
+slky later complete T012ABC/C034DEF/1786712345.001200
 .fi
 .nf
-slack-axi later complete T012ABC/C034DEF/1786712345.001200 --apply
+slky later complete T012ABC/C034DEF/1786712345.001200 --apply
 .fi
 .SS LATER SNOOZE
 Stage or apply snoozing one browser-only Later item.
@@ -574,10 +574,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi later snooze T012ABC/C034DEF/1786712345.001200 --until 2026-08-21T09:00:00+02:00
+slky later snooze T012ABC/C034DEF/1786712345.001200 --until 2026-08-21T09:00:00+02:00
 .fi
 .nf
-slack-axi later snooze T012ABC/C034DEF/1786712345.001200 --until 2026-08-21T09:00:00+02:00 --apply
+slky later snooze T012ABC/C034DEF/1786712345.001200 --until 2026-08-21T09:00:00+02:00 --apply
 .fi
 .SS POLICY
 Manage direct-apply policy.
@@ -586,13 +586,13 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi policy init
+slky policy init
 .fi
 .nf
-slack-axi policy validate ./policy.json
+slky policy validate ./policy.json
 .fi
 .nf
-slack-axi policy apply ./policy.json
+slky policy apply ./policy.json
 .fi
 .SS POLICY INIT
 Create the conservative global policy.
@@ -601,10 +601,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi policy init
+slky policy init
 .fi
 .nf
-slack-axi policy show
+slky policy show
 .fi
 .SS POLICY SHOW
 Show the effective global policy file.
@@ -613,10 +613,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi policy show
+slky policy show
 .fi
 .nf
-slack-axi policy show --output json
+slky policy show --output json
 .fi
 .SS POLICY VALIDATE
 Validate policy JSON without contacting Slack.
@@ -625,10 +625,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi policy validate ./policy.json
+slky policy validate ./policy.json
 .fi
 .nf
-slack-axi policy validate
+slky policy validate
 .fi
 .SS POLICY APPLY
 Atomically replace direct-apply policy through the dispatch authorization lock.
@@ -637,10 +637,10 @@ Defaults: replaces global policy; --project replaces the current-directory narro
 .br
 Incompatible combinations: None.
 .nf
-slack-axi policy apply ./policy.json
+slky policy apply ./policy.json
 .fi
 .nf
-slack-axi policy apply ./.slack-axi-policy.json --project
+slky policy apply ./.slky-policy.json --project
 .fi
 .SS ACTION
 Inspect and process signed staged mutations.
@@ -649,10 +649,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action list
+slky action list
 .fi
 .nf
-slack-axi action show 0198cafe-0000-7000-8000-000000000000
+slky action show 0198cafe-0000-7000-8000-000000000000
 .fi
 .SS ACTION LIST
 List signed actions and cheap state totals.
@@ -661,10 +661,10 @@ Defaults: --limit 20
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action list
+slky action list
 .fi
 .nf
-slack-axi action list --limit 50
+slky action list --limit 50
 .fi
 .SS ACTION SHOW
 Verify and show one signed action.
@@ -673,10 +673,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action show 0198cafe-0000-7000-8000-000000000000
+slky action show 0198cafe-0000-7000-8000-000000000000
 .fi
 .nf
-slack-axi action show 0198cafe-0000-7000-8000-000000000000 --output json
+slky action show 0198cafe-0000-7000-8000-000000000000 --output json
 .fi
 .SS ACTION APPLY
 Apply one signed action exactly once.
@@ -685,10 +685,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action apply 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac>
+slky action apply 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac>
 .fi
 .nf
-slack-axi action apply 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac> --workspace work
+slky action apply 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac> --workspace work
 .fi
 .SS ACTION RECONCILE
 Reconcile an unknown remote commit without replaying it.
@@ -697,10 +697,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action reconcile 0198cafe-0000-7000-8000-000000000000
+slky action reconcile 0198cafe-0000-7000-8000-000000000000
 .fi
 .nf
-slack-axi action reconcile 0198cafe-0000-7000-8000-000000000000 --workspace work
+slky action reconcile 0198cafe-0000-7000-8000-000000000000 --workspace work
 .fi
 .SS ACTION ABANDON
 Acknowledge and close an unrecoverable unknown action.
@@ -709,10 +709,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action abandon 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac>
+slky action abandon 0198cafe-0000-7000-8000-000000000000 --approval <base64url-hmac>
 .fi
 .nf
-slack-axi action show 0198cafe-0000-7000-8000-000000000000
+slky action show 0198cafe-0000-7000-8000-000000000000
 .fi
 .SS ACTION DELETE
 Explicitly delete an unverifiable local action directory.
@@ -721,10 +721,10 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action delete 0198cafe-0000-7000-8000-000000000000 --force-unverified
+slky action delete 0198cafe-0000-7000-8000-000000000000 --force-unverified
 .fi
 .nf
-slack-axi action list
+slky action list
 .fi
 .SS ACTION GC
 Delete old terminal records and expired creation remnants.
@@ -733,22 +733,24 @@ Defaults: Global --output toon; no command-specific defaults.
 .br
 Incompatible combinations: None.
 .nf
-slack-axi action gc
+slky action gc
 .fi
 .nf
-slack-axi action gc --retention-days 7
+slky action gc --retention-days 7
 .fi
 .SH ACTION SAFETY
 Staged actions expire after 15 minutes and are approved with --approval BASE64URL-HMAC. Unknown commits are never replayed. Use action reconcile when a remote identity exists or action abandon to acknowledge unresolved uncertainty.
 .SH FILES
-~/Library/Application Support/slack-axi/config.json
+~/Library/Application Support/slky/config.json
 .br
-~/Library/Application Support/slack-axi/policy.json
+~/Library/Application Support/slky/policy.json
 .br
-~/Library/Application Support/slack-axi/actions/
+~/Library/Application Support/slky/actions/
 .br
-~/Library/Caches/slack-axi/
+~/Library/Caches/slky/
+.PP
+Installations with existing Slack AXI data use the corresponding slack-axi directories in Application Support and Caches. The default project policy is .slky-policy.json on a fresh installation and .slack-axi-policy.json on an upgrade.
 .SH KEYCHAIN
-Service dev.slack-axi. The local action signing account is local:action-signing:v1.
+Fresh installations use service dev.slky. Existing Slack AXI installations use dev.slack-axi. The local action signing account is local:action-signing:v1.
 .SH SEE ALSO
 README.md, PRIVACY.md, SECURITY.md, slack-app-manifest.json

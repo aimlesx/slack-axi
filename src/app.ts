@@ -4,8 +4,9 @@ import { AuthService, type WorkspaceClients } from "./auth.js";
 import { cacheIdentity, CacheStore, type CacheSnapshot } from "./cache.js";
 import { ConfigStore } from "./config.js";
 import { entityMaps } from "./domain.js";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { NativeKeychain, type SecretStore } from "./keychain.js";
+import { appPaths } from "./paths.js";
 import { PolicyStore } from "./policy.js";
 import { browserCountEntries } from "./slack-browser.js";
 import type { AuthProfile, CachedAuthor, Conversation, User, WorkspaceIdentity } from "./types.js";
@@ -19,7 +20,7 @@ export interface WorkspaceContext extends WorkspaceClients {
 
 type ColdCacheMode = "sync" | "conversations" | "entities" | "empty";
 
-export class SlackAxiApp {
+export class SlkyApp {
   readonly config: ConfigStore;
   readonly auth: AuthService;
   readonly cache: CacheStore;
@@ -36,11 +37,12 @@ export class SlackAxiApp {
     secrets?: SecretStore;
     revisionFactory?: () => string;
   } = {}) {
-    const secrets = dependencies.secrets ?? new NativeKeychain();
-    this.config = dependencies.config ?? new ConfigStore();
-    this.cache = dependencies.cache ?? new CacheStore();
-    this.policy = dependencies.policy ?? new PolicyStore();
-    this.actions = dependencies.actions ?? new ActionStore(undefined, secrets);
+    const paths = appPaths();
+    const secrets = dependencies.secrets ?? new NativeKeychain(paths.keychainService);
+    this.config = dependencies.config ?? new ConfigStore(paths.config);
+    this.cache = dependencies.cache ?? new CacheStore(paths.cache);
+    this.policy = dependencies.policy ?? new PolicyStore(paths.policy);
+    this.actions = dependencies.actions ?? new ActionStore(paths.actions, secrets);
     this.auth = dependencies.auth ?? new AuthService(this.config, secrets, undefined, undefined, this.cache, this.actions);
     this.revisionFactory = dependencies.revisionFactory ?? randomUUID;
   }
@@ -204,7 +206,7 @@ export class SlackAxiApp {
     if (snapshot.team_id !== expected.team_id
       || snapshot.actor_id !== expected.actor_id
       || snapshot.credential_generation !== expected.credential_generation) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "CACHE_IDENTITY_MISMATCH",
         message: "The cache snapshot does not belong to the selected workspace actor and credential generation.",
       });

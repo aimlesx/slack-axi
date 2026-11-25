@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { atomicWriteJson, readJson } from "./fs-store.js";
 import { preserveActionOutcome, withOwnedRelease } from "./lease-outcome.js";
 import { OwnedFileLock, type OwnedLockOptions } from "./owned-lock.js";
@@ -70,7 +70,7 @@ export class ConfigStore {
     const raw = await readJson<unknown>(this.filename, { version: 1, profiles: [] });
     const parsed = configSchema.safeParse(raw);
     if (!parsed.success) {
-      throw new AxiError({ code: "CONFIG_INVALID", message: "Slack AXI configuration is invalid.", details: { issues: parsed.error.issues } });
+      throw new SlkyError({ code: "CONFIG_INVALID", message: "slky configuration is invalid.", details: { issues: parsed.error.issues } });
     }
     return {
       version: 1,
@@ -110,14 +110,14 @@ export class ConfigStore {
       const removing = new Set(config.removing_workspaces ?? []);
       const blockedProfile = [aliasMatch, teamMatch].find((item) => item && removing.has(item.team_id));
       if (removing.has(profile.team_id) || blockedProfile) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "WORKSPACE_REMOVING",
           message: `Slack team '${blockedProfile?.team_id ?? profile.team_id}' is being removed; finish auth remove before importing another token.`,
           retryable: true,
         });
       }
       if (aliasMatch && teamMatch && aliasMatch !== teamMatch) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "WORKSPACE_ALIAS_CONFLICT",
           message: `Workspace alias '${profile.alias}' and Slack team '${profile.team_id}' belong to different configured profiles.`,
           exitCode: 2,
@@ -157,14 +157,14 @@ export class ConfigStore {
       const config = await this.load();
       const current = config.profiles.find((item) => item.team_id === profile.team_id);
       if (!current) {
-        throw new AxiError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${profile.team_id}' is not configured.` });
+        throw new SlkyError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${profile.team_id}' is not configured.` });
       }
       this.assertProfileAvailable(config, current);
       if (current.actor_id !== profile.actor_id
         || current.kind !== profile.kind
         || current.keychain_accounts.length !== profile.keychain_accounts.length
         || current.keychain_accounts.some((account, index) => account !== profile.keychain_accounts[index])) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "WORKSPACE_PROFILE_CHANGED",
           message: "The workspace credential profile changed while it was being updated; refusing to overwrite the newer generation.",
           retryable: true,
@@ -172,7 +172,7 @@ export class ConfigStore {
       }
       const aliasOwner = config.profiles.find((item) => item.alias === profile.alias);
       if (aliasOwner && aliasOwner.team_id !== profile.team_id) {
-        throw new AxiError({ code: "WORKSPACE_ALIAS_CONFLICT", message: `Workspace alias '${profile.alias}' is already assigned to another Slack team.`, exitCode: 2 });
+        throw new SlkyError({ code: "WORKSPACE_ALIAS_CONFLICT", message: `Workspace alias '${profile.alias}' is already assigned to another Slack team.`, exitCode: 2 });
       }
       const updated = { ...config, profiles: config.profiles.map((item) => item.team_id === profile.team_id ? profile : item) };
       await this.save(updated);
@@ -220,7 +220,7 @@ export class ConfigStore {
     return this.transaction(async () => {
       const config = await this.load();
       const matches = config.profiles.filter((profile) => profile.alias === selector || profile.team_id === selector);
-      if (matches.length !== 1) throw new AxiError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
+      if (matches.length !== 1) throw new SlkyError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
       this.assertProfileAvailable(config, matches[0]!);
       const updated = { ...config, default_workspace: matches[0]!.alias };
       await this.save(updated);
@@ -232,9 +232,9 @@ export class ConfigStore {
     return this.transaction(async () => {
       const config = await this.load();
       const removed = config.profiles.find((profile) => profile.alias === selector || profile.team_id === selector);
-      if (!removed) throw new AxiError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
+      if (!removed) throw new SlkyError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
       if (!config.removing_workspaces?.includes(removed.team_id)) {
-        throw new AxiError({ code: "WORKSPACE_REMOVAL_NOT_STARTED", message: `Workspace '${removed.alias}' must enter the removal barrier before its profile can be deleted.` });
+        throw new SlkyError({ code: "WORKSPACE_REMOVAL_NOT_STARTED", message: `Workspace '${removed.alias}' must enter the removal barrier before its profile can be deleted.` });
       }
       const profiles = config.profiles.filter((profile) => profile !== removed);
       const updated: AppConfig = {
@@ -261,10 +261,10 @@ export class ConfigStore {
     const wanted = selector ?? config.default_workspace;
     if (!wanted) {
       if (config.profiles.length === 0) {
-        throw new AxiError({ code: "AUTH_REQUIRED", message: "No Slack workspace is configured.", suggestedCommand: "slack-axi auth add <alias> --from-stdin" });
+        throw new SlkyError({ code: "AUTH_REQUIRED", message: "No Slack workspace is configured.", suggestedCommand: "slky auth add <alias> --from-stdin" });
       }
       if (config.profiles.length > 1) {
-        throw new AxiError({ code: "WORKSPACE_REQUIRED", message: "Multiple Slack workspaces are configured; pass --workspace.", exitCode: 2, candidates: config.profiles.map(({ alias, team_id }) => ({ alias, team_id })) });
+        throw new SlkyError({ code: "WORKSPACE_REQUIRED", message: "Multiple Slack workspaces are configured; pass --workspace.", exitCode: 2, candidates: config.profiles.map(({ alias, team_id }) => ({ alias, team_id })) });
       }
       const profile = config.profiles[0]!;
       this.assertProfileAvailable(config, profile);
@@ -272,7 +272,7 @@ export class ConfigStore {
     }
     const matches = config.profiles.filter((profile) => profile.alias === wanted || profile.team_id === wanted);
     if (matches.length !== 1) {
-      throw new AxiError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${wanted}' is not configured.`, exitCode: 2, candidates: config.profiles.map(({ alias, team_id }) => ({ alias, team_id })) });
+      throw new SlkyError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${wanted}' is not configured.`, exitCode: 2, candidates: config.profiles.map(({ alias, team_id }) => ({ alias, team_id })) });
     }
     const profile = matches[0]!;
     this.assertProfileAvailable(config, profile);
@@ -281,14 +281,14 @@ export class ConfigStore {
 
   private assertProfileAvailable(config: AppConfig, profile: AuthProfile): void {
     if (config.removing_workspaces?.includes(profile.team_id)) {
-      throw new AxiError({ code: "WORKSPACE_REMOVING", message: `Workspace '${profile.alias}' is being removed; rerun auth remove to finish local cleanup.`, retryable: true, suggestedCommand: `slack-axi auth remove ${profile.alias}` });
+      throw new SlkyError({ code: "WORKSPACE_REMOVING", message: `Workspace '${profile.alias}' is being removed; rerun auth remove to finish local cleanup.`, retryable: true, suggestedCommand: `slky auth remove ${profile.alias}` });
     }
   }
 
   async assertWorkspaceAvailable(teamId: string): Promise<void> {
     const config = await this.load();
     if (config.removing_workspaces?.includes(teamId)) {
-      throw new AxiError({ code: "WORKSPACE_REMOVING", message: `Slack team '${teamId}' is being removed; no new action can be staged.`, retryable: true });
+      throw new SlkyError({ code: "WORKSPACE_REMOVING", message: `Slack team '${teamId}' is being removed; no new action can be staged.`, retryable: true });
     }
   }
 
@@ -296,7 +296,7 @@ export class ConfigStore {
     return this.transaction(async () => {
       const config = await this.load();
       const matches = config.profiles.filter((profile) => profile.alias === selector || profile.team_id === selector);
-      if (matches.length !== 1) throw new AxiError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
+      if (matches.length !== 1) throw new SlkyError({ code: "WORKSPACE_NOT_FOUND", message: `Workspace '${selector}' is not configured.`, exitCode: 2 });
       const profile = matches[0]!;
       const removing = [...new Set([...(config.removing_workspaces ?? []), profile.team_id])];
       await this.save({ ...config, removing_workspaces: removing });

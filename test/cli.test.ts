@@ -8,9 +8,9 @@ import { decode } from "@toon-format/toon";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
 import { createProgram } from "../src/cli.js";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import { createCacheCursor, filterHash, type CacheSnapshot } from "../src/cache.js";
-import { AxiError } from "../src/errors.js";
+import { SlkyError } from "../src/errors.js";
 import { COMMAND_METADATA, commandKey } from "../src/metadata.js";
 import { MemoryCursorIntegrity, MemorySecrets } from "./helpers.js";
 
@@ -21,13 +21,13 @@ describe("CLI fast and validation paths", () => {
   it("prints a bare version for every fast-path flag", async () => {
     for (const flag of ["-v", "-V", "--version"]) {
       const result = await exec(process.execPath, [entry, flag]);
-      expect(result.stdout.trim()).toBe("0.1.0");
+      expect(result.stdout.trim()).toBe("0.2.0");
       expect(result.stderr).toBe("");
     }
   });
 
   it("renders help without accessing configuration", async () => {
-    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slack-axi-home-"));
+    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slky-home-"));
     const result = await exec(process.execPath, [entry, "--help"], { env: { ...process.env, HOME: fakeHome } });
     expect(result.stdout).toContain("Read and safely act on Slack");
     expect(result.stderr).toBe("");
@@ -42,7 +42,7 @@ describe("CLI fast and validation paths", () => {
   });
 
   it("returns a cache-only setup home envelope", async () => {
-    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slack-axi-home-"));
+    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slky-home-"));
     const result = await exec(process.execPath, [entry], { env: { ...process.env, HOME: fakeHome } });
     expect(decode(result.stdout, { strict: true })).toMatchObject({ ok: true, data: { status: "setup_required" } });
   });
@@ -71,9 +71,9 @@ describe("CLI fast and validation paths", () => {
       identity(value: { team_id: string; alias: string; actor_id: string; kind: string }) {
         return { id: value.team_id, alias: value.alias, actor_id: value.actor_id, auth_kind: value.kind };
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", ...kindFlags, "--from-stdin"]);
+      await createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", ...kindFlags, "--from-stdin"]);
     } finally {
       stdout.mockRestore();
       stdin.mockRestore();
@@ -99,12 +99,12 @@ describe("CLI fast and validation paths", () => {
       identity(value: { team_id: string; alias: string; actor_id: string; kind: string }) {
         return { id: value.team_id, alias: value.alias, actor_id: value.actor_id, auth_kind: value.kind };
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const fallbackStream = { async *[Symbol.asyncIterator]() { yield JSON.stringify({ xoxp: "xoxp-fallback" }); } };
     const fallbackStdin = vi.spyOn(process, "stdin", "get").mockReturnValue(fallbackStream as unknown as typeof process.stdin);
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", "--user-token", "--from-stdin"]);
+      await createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", "--user-token", "--from-stdin"]);
     } finally {
       fallbackStdin.mockRestore();
     }
@@ -113,7 +113,7 @@ describe("CLI fast and validation paths", () => {
     const defaultStream = { async *[Symbol.asyncIterator]() { yield JSON.stringify({ xoxp: "xoxp-fallback" }); } };
     const defaultStdin = vi.spyOn(process, "stdin", "get").mockReturnValue(defaultStream as unknown as typeof process.stdin);
     try {
-      await expect(createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", "--from-stdin"])).rejects.toMatchObject({ code: "STDIN_JSON_INVALID", exitCode: 2 });
+      await expect(createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", "--from-stdin"])).rejects.toMatchObject({ code: "STDIN_JSON_INVALID", exitCode: 2 });
     } finally {
       defaultStdin.mockRestore();
     }
@@ -121,7 +121,7 @@ describe("CLI fast and validation paths", () => {
 
     const forbiddenStdin = vi.spyOn(process, "stdin", "get").mockImplementation(() => { throw new Error("stdin must not be read"); });
     try {
-      await expect(createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", "--browser", "--user-token", "--from-stdin"])).rejects.toMatchObject({ code: "AUTH_KIND_CONFLICT", exitCode: 2 });
+      await expect(createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", "--browser", "--user-token", "--from-stdin"])).rejects.toMatchObject({ code: "AUTH_KIND_CONFLICT", exitCode: 2 });
     } finally {
       forbiddenStdin.mockRestore();
       stdout.mockRestore();
@@ -133,8 +133,8 @@ describe("CLI fast and validation paths", () => {
     const add = vi.fn();
     const stdin = vi.spyOn(process, "stdin", "get").mockImplementation(() => { throw new Error("stdin must not be read"); });
     try {
-      await expect(createProgram({ auth: { add } } as unknown as SlackAxiApp).parseAsync([
-        "node", "slack-axi", "auth", "add", "not/valid", "--from-stdin",
+      await expect(createProgram({ auth: { add } } as unknown as SlkyApp).parseAsync([
+        "node", "slky", "auth", "add", "not/valid", "--from-stdin",
       ])).rejects.toMatchObject({ code: "ALIAS_INVALID", exitCode: 2 });
     } finally {
       stdin.mockRestore();
@@ -143,7 +143,7 @@ describe("CLI fast and validation paths", () => {
   });
 
   it("rejects unknown projected fields before configuration access", async () => {
-    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slack-axi-home-"));
+    const fakeHome = await mkdtemp(path.join(os.tmpdir(), "slky-home-"));
     await expect(exec(process.execPath, [entry, "auth", "list", "--fields", "secret", "--output", "json"], { env: { ...process.env, HOME: fakeHome } })).rejects.toMatchObject({
       code: 2,
       stderr: "",
@@ -158,16 +158,16 @@ describe("CLI fast and validation paths", () => {
       users: [],
       public: { async userInfo() { return rawUser; } },
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "--fields", "id", "user", "get", "U2"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "--fields", "id", "user", "get", "U2"]);
     } finally {
       write.mockRestore();
     }
     expect(JSON.parse(chunks.join(""))).toEqual({
-      schema: "slack-axi/v1",
+      schema: "slky/v1",
       ok: true,
       workspace: { id: "T1", alias: "work", actor_id: "U1", auth_kind: "user_token" },
       scope: { command: "user.get", backend_calls: 0 },
@@ -177,11 +177,11 @@ describe("CLI fast and validation paths", () => {
 
   it("runs cross-option and date preflight before app.context", async () => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "message", "send", "--to", "C1", "--text", "a", "--text-file", "b"])).rejects.toMatchObject({ code: "MESSAGE_TEXT_REQUIRED" });
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "search", "messages", "incident", "--all"])).rejects.toMatchObject({ code: "MAX_RESULTS_REQUIRED" });
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "read", "C1", "--on", "2026-02-30"])).rejects.toMatchObject({ code: "TIME_INVALID" });
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "--cursor", "opaque", "message", "get", "T1/C1/1786712345.001200"])).rejects.toMatchObject({ code: "CURSOR_UNSUPPORTED", exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "message", "send", "--to", "C1", "--text", "a", "--text-file", "b"])).rejects.toMatchObject({ code: "MESSAGE_TEXT_REQUIRED" });
+    await expect(createProgram(app).parseAsync(["node", "slky", "search", "messages", "incident", "--all"])).rejects.toMatchObject({ code: "MAX_RESULTS_REQUIRED" });
+    await expect(createProgram(app).parseAsync(["node", "slky", "read", "C1", "--on", "2026-02-30"])).rejects.toMatchObject({ code: "TIME_INVALID" });
+    await expect(createProgram(app).parseAsync(["node", "slky", "--cursor", "opaque", "message", "get", "T1/C1/1786712345.001200"])).rejects.toMatchObject({ code: "CURSOR_UNSUPPORTED", exitCode: 2 });
     expect(contextCalls).toBe(0);
   });
 
@@ -202,8 +202,8 @@ describe("CLI fast and validation paths", () => {
     const app = {
       async context() { contextCalls += 1; throw new Error("context must not run"); },
       actions: { async list() { actionListCalls += 1; throw new Error("action store must not run"); } },
-    } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "--limit", String(maximum + 1), ...args])).rejects.toMatchObject({
+    } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "--limit", String(maximum + 1), ...args])).rejects.toMatchObject({
       code: "LIMIT_TOO_LARGE",
       message: `Limit cannot exceed ${maximum}.`,
       exitCode: 2,
@@ -214,8 +214,8 @@ describe("CLI fast and validation paths", () => {
 
   it("rejects ignored --limit options before workspace access", async () => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "--limit", "1", "message", "get", "T1/C1/1786712345.001200"])).rejects.toMatchObject({ code: "LIMIT_UNSUPPORTED", exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "--limit", "1", "message", "get", "T1/C1/1786712345.001200"])).rejects.toMatchObject({ code: "LIMIT_UNSUPPORTED", exitCode: 2 });
     expect(contextCalls).toBe(0);
   });
 
@@ -224,8 +224,8 @@ describe("CLI fast and validation paths", () => {
     ["catchup", ["catchup", "--since", "999999999999999999999999999999w"]],
   ])("rejects invalid or overflowing --since on %s before workspace access", async (_command, args) => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", ...args])).rejects.toMatchObject({ code: "TIME_INVALID", exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", ...args])).rejects.toMatchObject({ code: "TIME_INVALID", exitCode: 2 });
     expect(contextCalls).toBe(0);
   });
 
@@ -235,8 +235,8 @@ describe("CLI fast and validation paths", () => {
     ["competing result bounds", ["--limit", "10", "search", "messages", "incident", "--all", "--max-results", "100"], "SEARCH_OPTION_CONFLICT"],
   ])("rejects search %s before workspace access", async (_case, args, code) => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", ...args])).rejects.toMatchObject({ code, exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", ...args])).rejects.toMatchObject({ code, exitCode: 2 });
     expect(contextCalls).toBe(0);
   });
 
@@ -267,38 +267,38 @@ describe("CLI fast and validation paths", () => {
       userMap: new Map(),
     };
     const integrity = new MemoryCursorIntegrity();
-    const app = { actions: integrity, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions: integrity, async context() { return context; } } as unknown as SlkyApp;
     const stale = { ...snapshot, revision: "stale" };
     const conversationFilters = { type: "channel", query: "eng team", archived: true };
     const conversationCursor = await createCacheCursor(stale, filterHash({ key: "conversation list", filters: conversationFilters }), 1, integrity);
     await expect(createProgram(app).parseAsync([
-      "node", "slack-axi", "--cursor", conversationCursor, "--limit", "10", "--fields", "id,name",
+      "node", "slky", "--cursor", conversationCursor, "--limit", "10", "--fields", "id,name",
       "conversation", "list", "--type", "channel", "--query", "eng team", "--include-archived",
     ])).rejects.toMatchObject({
       code: "CURSOR_STALE",
-      suggestedCommand: "slack-axi conversation list --type channel --query 'eng team' --include-archived --limit 10 --fields id,name --workspace work",
+      suggestedCommand: "slky conversation list --type channel --query 'eng team' --include-archived --limit 10 --fields id,name --workspace work",
     });
 
     const userCursor = await createCacheCursor(stale, filterHash({ key: "user search", filters: { query: "alice smith" } }), 1, integrity);
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "--cursor", userCursor, "user", "search", "Alice Smith"])).rejects.toMatchObject({
+    await expect(createProgram(app).parseAsync(["node", "slky", "--cursor", userCursor, "user", "search", "Alice Smith"])).rejects.toMatchObject({
       code: "CURSOR_STALE",
-      suggestedCommand: "slack-axi user search 'Alice Smith' --workspace work",
+      suggestedCommand: "slky user search 'Alice Smith' --workspace work",
     });
   });
 
   it("rejects oversized outgoing text before workspace access using Unicode characters", async () => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context reached"); } } as unknown as SlackAxiApp;
+    const app = { async context() { contextCalls += 1; throw new Error("context reached"); } } as unknown as SlkyApp;
 
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "message", "send", "--to", "C1", "--text", "😀".repeat(40_001)])).rejects.toMatchObject({ code: "MESSAGE_TOO_LONG", exitCode: 2 });
+    await expect(createProgram(app).parseAsync(["node", "slky", "message", "send", "--to", "C1", "--text", "😀".repeat(40_001)])).rejects.toMatchObject({ code: "MESSAGE_TOO_LONG", exitCode: 2 });
     expect(contextCalls).toBe(0);
 
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "message", "send", "--to", "C1", "--text", "😀".repeat(40_000)])).rejects.toThrow("context reached");
+    await expect(createProgram(app).parseAsync(["node", "slky", "message", "send", "--to", "C1", "--text", "😀".repeat(40_000)])).rejects.toThrow("context reached");
     expect(contextCalls).toBe(1);
   });
 
   it("rejects an oversized upload before workspace access or action staging", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "slack-axi-upload-preflight-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "slky-upload-preflight-"));
     const filename = path.join(directory, "too-large.bin");
     await writeFile(filename, "five!");
     let contextCalls = 0;
@@ -306,10 +306,10 @@ describe("CLI fast and validation paths", () => {
     const app = {
       async context() { contextCalls += 1; throw new Error("context must not run"); },
       actions: { async create() { actionCalls += 1; throw new Error("action staging must not run"); } },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
     await expect(createProgram(app).parseAsync([
-      "node", "slack-axi", "file", "upload", filename, "--to", "C1", "--max-bytes", "4",
+      "node", "slky", "file", "upload", filename, "--to", "C1", "--max-bytes", "4",
     ])).rejects.toMatchObject({
       code: "FILE_UPLOAD_LIMIT_EXCEEDED",
       exitCode: 2,
@@ -320,17 +320,17 @@ describe("CLI fast and validation paths", () => {
   });
 
   it("bounds message files before reading them into memory", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "slack-axi-message-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "slky-message-"));
     const filename = path.join(directory, "too-large.txt");
     await writeFile(filename, Buffer.alloc(160_001, 0x61));
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "message", "reply", "--to", "C1", "--thread", "T1/C1/1786712345.001200", "--text-file", filename])).rejects.toMatchObject({ code: "MESSAGE_TOO_LONG", exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "message", "reply", "--to", "C1", "--thread", "T1/C1/1786712345.001200", "--text-file", filename])).rejects.toMatchObject({ code: "MESSAGE_TOO_LONG", exitCode: 2 });
     expect(contextCalls).toBe(0);
   });
 
   it("stages and dispatches bytes from one no-follow message-file handle despite pathname replacement", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "slack-axi-message-race-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "slky-message-race-"));
     const filename = path.join(directory, "message.txt");
     const openedFilename = path.join(directory, "message.opened.txt");
     const replacement = path.join(directory, "replacement.txt");
@@ -375,7 +375,7 @@ describe("CLI fast and validation paths", () => {
         assertWorkspaceAvailable(_teamId: string): Promise<void> { return Promise.resolve(); },
       },
       async context() { return workspace; },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
@@ -389,7 +389,7 @@ describe("CLI fast and validation paths", () => {
           await symlink(replacement, requested);
           return handle;
         },
-      }).parseAsync(["node", "slack-axi", "--output", "json", "message", "send", "--to", "C1", "--text-file", filename, "--apply"]);
+      }).parseAsync(["node", "slky", "--output", "json", "message", "send", "--to", "C1", "--text-file", filename, "--apply"]);
     } finally {
       write.mockRestore();
     }
@@ -421,11 +421,11 @@ describe("CLI fast and validation paths", () => {
       userMap: new Map(),
       public: publicClient,
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "search", kind, "needle", "--all", "--max-results", "101"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "search", kind, "needle", "--all", "--max-results", "101"]);
     } finally {
       write.mockRestore();
     }
@@ -447,16 +447,16 @@ describe("CLI fast and validation paths", () => {
       userMap: new Map(),
       public: publicClient,
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
 
     await expect(createProgram(app).parseAsync([
-      "node", "slack-axi", "search", kind, "needle", "--all", "--max-results", "250",
+      "node", "slky", "search", kind, "needle", "--all", "--max-results", "250",
     ])).rejects.toMatchObject({ code: "SLACK_RESPONSE_INVALID" });
     expect(search).toHaveBeenCalledTimes(1);
   });
 
   it("includes two or more examples on every command help page", () => {
-    const program = createProgram({} as SlackAxiApp);
+    const program = createProgram({} as SlkyApp);
     const visit = (command: ReturnType<typeof createProgram>): void => {
       const metadata = COMMAND_METADATA[commandKey(command)];
       expect(metadata, commandKey(command)).toBeDefined();
@@ -467,7 +467,7 @@ describe("CLI fast and validation paths", () => {
   });
 
   it("includes required values, defaults, and incompatibilities on every help page", () => {
-    const program = createProgram({} as SlackAxiApp);
+    const program = createProgram({} as SlkyApp);
     const visit = (command: ReturnType<typeof createProgram>): void => {
       let help = "";
       const output = command.configureOutput();
@@ -484,7 +484,7 @@ describe("CLI fast and validation paths", () => {
   });
 
   it("documents read's rolling 24-hour default truthfully", () => {
-    const program = createProgram({} as SlackAxiApp);
+    const program = createProgram({} as SlkyApp);
     const read = program.commands.find((command) => command.name() === "read")!;
     let help = "";
     const output = read.configureOutput();
@@ -497,8 +497,8 @@ describe("CLI fast and validation paths", () => {
 
   it("keeps generated shell completions aligned with registry subcommands", async () => {
     const [bash, zsh] = await Promise.all([
-      readFile(path.resolve("completions/slack-axi.bash"), "utf8"),
-      readFile(path.resolve("completions/_slack-axi"), "utf8"),
+      readFile(path.resolve("completions/slky.bash"), "utf8"),
+      readFile(path.resolve("completions/_slky"), "utf8"),
     ]);
     for (const key of Object.keys(COMMAND_METADATA).filter((value) => value.includes(" "))) {
       const [root, child] = key.split(" ");
@@ -517,12 +517,12 @@ describe("CLI fast and validation paths", () => {
       actions: { create },
       config: { async resolve() { return context.profile; } },
       context: loadContext,
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "auth", "revoke", "work"])).rejects.toMatchObject({
+    await expect(createProgram(app).parseAsync(["node", "slky", "auth", "revoke", "work"])).rejects.toMatchObject({
       code: "AUTH_REVOCATION_UNSUPPORTED",
       retryable: false,
-      suggestedCommand: "slack-axi auth remove work",
+      suggestedCommand: "slky auth remove work",
     });
     expect(create).not.toHaveBeenCalled();
     expect(loadContext).not.toHaveBeenCalled();
@@ -538,19 +538,19 @@ describe("CLI fast and validation paths", () => {
       actions: { signCursor, verifyCursor: vi.fn() },
       config: { async resolve() { return context.profile; } },
       context: vi.fn(),
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "later", "list"])).rejects.toMatchObject({
+    await expect(createProgram(app).parseAsync(["node", "slky", "later", "list"])).rejects.toMatchObject({
       code: "BROWSER_CAPABILITY_UNAVAILABLE",
       retryable: false,
-      suggestedCommand: "slack-axi auth add work --from-stdin",
+      suggestedCommand: "slky auth add work --from-stdin",
     });
     expect(signCursor).not.toHaveBeenCalled();
     expect(app.context).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["missing", async () => { throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Unread semantics are missing." }); }, 1],
+    ["missing", async () => { throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Unread semantics are missing." }); }, 1],
     ["zero", async () => ({ id: "C1", unread_count_display: 0, is_ext_shared: false }), 0],
   ])("reports %s timeline unread semantics with thread counts unsupported", async (_case, conversationInboxInfo, failed) => {
     const context = {
@@ -570,11 +570,11 @@ describe("CLI fast and validation paths", () => {
       },
       public: { conversationInboxInfo },
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "inbox", "--include-muted"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "inbox", "--include-muted"]);
     } finally {
       write.mockRestore();
     }
@@ -605,13 +605,13 @@ describe("CLI fast and validation paths", () => {
       },
       public: { async conversationInboxInfo() { return { id: "C1", unread_count_display: 0, is_ext_shared: false }; } },
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
 
     const run = async (extra: string[] = []): Promise<Record<string, any>> => {
       const chunks: string[] = [];
       const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
       try {
-        await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "inbox", ...extra]);
+        await createProgram(app).parseAsync(["node", "slky", "--output", "json", "inbox", ...extra]);
       } finally {
         write.mockRestore();
       }
@@ -622,7 +622,7 @@ describe("CLI fast and validation paths", () => {
     expect(defaultResult).toMatchObject({
       page: { complete: false, source_complete: false, total: 0, total_kind: "known" },
       coverage: { requested: 1, scanned: 1, failed: 0, complete: false, reason: expect.stringContaining("cannot determine mute state") },
-      hints: expect.arrayContaining([{ command: "slack-axi inbox --include-muted --workspace work", reason: expect.stringContaining("unavailable mute state") }]),
+      hints: expect.arrayContaining([{ command: "slky inbox --include-muted --workspace work", reason: expect.stringContaining("unavailable mute state") }]),
     });
 
     const inclusiveResult = await run(["--include-muted"]);
@@ -666,11 +666,11 @@ describe("CLI fast and validation paths", () => {
         mutedChannels,
       },
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "inbox"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "inbox"]);
     } finally {
       write.mockRestore();
     }
@@ -706,10 +706,10 @@ describe("CLI fast and validation paths", () => {
       public: { history },
       browser: { counts, async mutedChannels() { return ["C2"]; } },
     };
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "inbox", "--type", "channel", "--internal-only", "--limit", "1", ...args]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "inbox", "--type", "channel", "--internal-only", "--limit", "1", ...args]);
       expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({
         data: {
           known_count: 1,
@@ -752,11 +752,11 @@ describe("CLI fast and validation paths", () => {
       public: { history },
     };
     const integrity = new MemoryCursorIntegrity();
-    const app = { actions: integrity, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions: integrity, async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "catchup", "--since", "24h", "--max-conversations", "2", "--per-conversation", "1"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "catchup", "--since", "24h", "--max-conversations", "2", "--per-conversation", "1"]);
     } finally {
       write.mockRestore();
     }
@@ -765,7 +765,7 @@ describe("CLI fast and validation paths", () => {
     expect(envelope).toMatchObject({
       data: { totals: { eligible: 2, scanned: 2, returned: 2, incomplete: 1, failed: 0, skipped: 0 }, incomplete: [{ conversation_id: "C1", reason: "history_page_truncated" }] },
       coverage: { requested: 2, scanned: 2, failed: 0, complete: false, reason: expect.stringContaining("additional pages") },
-      hints: [{ command: expect.stringContaining("slack-axi read C1"), reason: expect.stringContaining("exact bounded range") }],
+      hints: [{ command: expect.stringContaining("slky read C1"), reason: expect.stringContaining("exact bounded range") }],
     });
     const continuation = String(envelope.data.incomplete[0].continuation_command);
     const encoded = /--cursor ([A-Za-z0-9_-]+)/.exec(continuation)?.[1];
@@ -810,11 +810,11 @@ describe("CLI fast and validation paths", () => {
       },
       public: { history },
     };
-    const app = { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlkyApp;
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "catchup"]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "catchup"]);
     } finally {
       write.mockRestore();
     }

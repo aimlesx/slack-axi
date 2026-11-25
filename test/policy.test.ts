@@ -3,14 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 import { atomicWriteJson } from "../src/fs-store.js";
 import { applyAction, stageAction } from "../src/mutations.js";
 import { PolicyStore } from "../src/policy.js";
 import { MemorySecrets } from "./helpers.js";
 
 async function policyWithDomains(domains = ["example.com"]): Promise<PolicyStore> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-links-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-links-"));
   const globalFile = path.join(root, "policy.json");
   await atomicWriteJson(globalFile, { version: 1, allow_direct_apply: [], allowed_unfurl_domains: domains });
   return new PolicyStore(globalFile, path.join(root, "project.json"));
@@ -59,7 +59,7 @@ describe("unfurl policy", () => {
       validateUnfurls: vi.fn(async () => undefined),
       validateUploadComment: vi.fn(async () => { throw Object.assign(new Error("denied"), { code: "UNFURL_POLICY_DENIED" }); }),
     };
-    const app = { actions, policy } as unknown as SlackAxiApp;
+    const app = { actions, policy } as unknown as SlkyApp;
     const context = { profile: { team_id: "T1", actor_id: "U1" } } as WorkspaceContext;
 
     await stageAction(app, context, {
@@ -88,7 +88,7 @@ describe("unfurl policy", () => {
   });
 
   it("revalidates previously staged message and upload content before dispatch", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-apply-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-apply-"));
     const policy = await policyWithDomains([]);
     const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
     const source = path.join(root, "upload.txt");
@@ -104,7 +104,7 @@ describe("unfurl policy", () => {
       },
       snapshot: {}, conversations: [], users: [], userMap: new Map(),
     } as unknown as WorkspaceContext;
-    const app = { actions, policy, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, policy, async context() { return context; } } as unknown as SlkyApp;
 
     for (const operation of ["message.send", "message.reply"] as const) {
       const plan = await actions.create({

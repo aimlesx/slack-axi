@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import { createProgram } from "../src/cli.js";
 import { PublicSlackClient } from "../src/slack-public.js";
 
@@ -31,11 +31,11 @@ function fixture(browserMode = true, complete = true) {
     public: { history },
     ...(browserMode ? { browser: { counts } } : {}),
   };
-  const app = { async context() { return context; } } as unknown as SlackAxiApp;
+  const app = { async context() { return context; } } as unknown as SlkyApp;
   async function run(...args: string[]) {
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "catchup", ...args]);
+      await createProgram(app).parseAsync(["node", "slky", "--output", "json", "catchup", ...args]);
       return JSON.parse(String(write.mock.calls[0]?.[0]));
     } finally {
       write.mockRestore();

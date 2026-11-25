@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import type { CacheSnapshot } from "../src/cache.js";
 import { createProgram } from "../src/cli.js";
 import { entityMaps, normalizeMessage } from "../src/domain.js";
@@ -47,15 +47,15 @@ function fixtures(cachedUsers: Record<string, unknown>[] = users) {
       },
     },
   };
-  const app = { async context() { return ctx; } } as unknown as SlackAxiApp;
+  const app = { async context() { return ctx; } } as unknown as SlkyApp;
   return { app, ctx, userInfo };
 }
 
-async function run(app: SlackAxiApp, args: string[]) {
+async function run(app: SlkyApp, args: string[]) {
   const chunks: string[] = [];
   const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { chunks.push(String(chunk)); return true; });
   try {
-    await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", ...args]);
+    await createProgram(app).parseAsync(["node", "slky", "--output", "json", ...args]);
     return JSON.parse(chunks.join(""));
   } finally {
     write.mockRestore();

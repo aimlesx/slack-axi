@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import { AxiError } from "../src/errors.js";
+import { SlkyError } from "../src/errors.js";
 import { reconcileAction } from "../src/mutations.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 import type { ActionPlan } from "../src/types.js";
 import { MemorySecrets } from "./helpers.js";
 
@@ -23,13 +23,13 @@ async function unknownReply(actions: ActionStore): Promise<ActionPlan> {
   return actions.transition(applying, "unknown", { result: { recovery: { conversation_id: "C1", thread_ts: "1786712000.000001", client_msg_id: "reply-client-id" } } }, true);
 }
 
-function appWith(actions: ActionStore, publicClient: Record<string, unknown>): SlackAxiApp {
+function appWith(actions: ActionStore, publicClient: Record<string, unknown>): SlkyApp {
   const context = {
     profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token", timezone: "UTC" },
     public: { async authTest() { return { team_id: "T1", user_id: "U1" }; }, ...publicClient },
     snapshot: {}, conversations: [], users: [], userMap: new Map(),
   } as unknown as WorkspaceContext;
-  return { actions, async context() { return context; } } as unknown as SlackAxiApp;
+  return { actions, async context() { return context; } } as unknown as SlkyApp;
 }
 
 async function unknownLater(actions: ActionStore, operation: "later.complete" | "later.snooze", remindAt?: number): Promise<ActionPlan> {
@@ -50,19 +50,19 @@ async function unknownLater(actions: ActionStore, operation: "later.complete" | 
   return actions.transition(applying, "unknown", { result: { recovery: payload } }, true);
 }
 
-function appWithBrowser(actions: ActionStore, browser: Record<string, unknown>): SlackAxiApp {
+function appWithBrowser(actions: ActionStore, browser: Record<string, unknown>): SlkyApp {
   const context = {
     profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "browser", timezone: "UTC" },
     public: { async authTest() { return { team_id: "T1", user_id: "U1" }; } },
     browser,
     snapshot: {}, conversations: [], users: [], userMap: new Map(),
   } as unknown as WorkspaceContext;
-  return { actions, async context() { return context; } } as unknown as SlackAxiApp;
+  return { actions, async context() { return context; } } as unknown as SlkyApp;
 }
 
 describe("incremental reconciliation", () => {
   it("persists a cursor after 300 messages and finds a match on a later page", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownMessage(actions);
     const pages = new Map<string, { items: Record<string, unknown>[]; next?: string; complete: boolean }>([
@@ -83,7 +83,7 @@ describe("incremental reconciliation", () => {
   it("requires two complete misses separated by at least 60 seconds", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownMessage(actions);
     const app = appWith(actions, { async history() { return { items: [], complete: true }; } });
@@ -98,7 +98,7 @@ describe("incremental reconciliation", () => {
   it("covers commits after plan expiry using the signed uncertain-boundary window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "once", client_msg_id: "late-client-id" } });
     const applying = await actions.transition(plan, "applying");
@@ -120,7 +120,7 @@ describe("incremental reconciliation", () => {
   });
 
   it("paginates the retained thread with conversations.replies and finds a later-page reply", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownReply(actions);
     const pages = new Map<string, { items: Record<string, unknown>[]; next?: string; complete: boolean }>([
@@ -146,7 +146,7 @@ describe("incremental reconciliation", () => {
   it("requires two complete thread misses before a reply is not_applied and never scans history", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownReply(actions);
     const history = vi.fn(async () => ({ items: [], complete: true }));
@@ -165,16 +165,16 @@ describe("incremental reconciliation", () => {
   });
 
   it("keeps the action unknown when reconciliation is rate limited", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownMessage(actions);
-    const app = appWith(actions, { async history() { throw new AxiError({ code: "RATE_LIMITED", message: "later", retryAfterSeconds: 9 }); } });
+    const app = appWith(actions, { async history() { throw new SlkyError({ code: "RATE_LIMITED", message: "later", retryAfterSeconds: 9 }); } });
     await expect(reconcileAction(app, unknown)).rejects.toMatchObject({ code: "RECONCILIATION_INCOMPLETE" });
     expect((await actions.get(unknown.id)).state).toBe("unknown");
   });
 
   it("reconciles a reaction from current remote state without replaying it", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", ts: "1786712345.001200", name: "eyes", ref: "T1/C1/1786712345.001200" } });
     const applying = await actions.transition(plan, "applying");
@@ -187,12 +187,12 @@ describe("incremental reconciliation", () => {
     ["reaction.add", { conversation_id: "C1", ts: "1786712345.001200", name: "eyes", ref: "T1/C1/1786712345.001200" }, "reactions"],
     ["mark-read", { conversation_id: "C1", ts: "1786712345.001200" }, "conversationReadState"],
   ])("keeps %s unknown when authoritative reconciliation fields are unavailable", async (operation, payload, dependency) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation, target_ids: ["C1"], preview: {}, payload });
     const applying = await actions.transition(plan, "applying");
     const unknown = await actions.transition(applying, "unknown", { result: { recovery: payload } }, true);
-    const failure = async () => { throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "missing reconciliation evidence" }); };
+    const failure = async () => { throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "missing reconciliation evidence" }); };
     const app = appWith(actions, { [dependency]: failure });
 
     await expect(reconcileAction(app, unknown)).rejects.toMatchObject({ code: "RECONCILIATION_INCOMPLETE", details: { dependency_error: "SLACK_RESPONSE_INVALID" } });
@@ -200,7 +200,7 @@ describe("incremental reconciliation", () => {
   });
 
   it("reconciles Later completion across the bounded saved and completed buckets", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-later-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-later-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownLater(actions, "later.complete");
     const filters: string[] = [];
@@ -223,7 +223,7 @@ describe("incremental reconciliation", () => {
   });
 
   it("reconciles a Later snooze from its exact saved-item state", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-later-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-later-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const remindAt = 1_786_800_000;
     const unknown = await unknownLater(actions, "later.snooze", remindAt);
@@ -240,7 +240,7 @@ describe("incremental reconciliation", () => {
     ["later.complete", undefined],
     ["later.snooze", 1_786_800_000],
   ] as const)("keeps %s unknown when Later counts prove a no-cursor page omitted items", async (operation, remindAt) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-later-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-later-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownLater(actions, operation, remindAt);
     const laterList = vi.fn(async () => ({
@@ -260,7 +260,7 @@ describe("incremental reconciliation", () => {
   });
 
   it("persists a Later cursor at the three-page bound and resumes without replaying prior pages", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reconcile-later-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reconcile-later-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const unknown = await unknownLater(actions, "later.complete");
     const laterList = vi.fn(async (cursor: string | undefined, _limit: number, filter: string) => filter === "saved"

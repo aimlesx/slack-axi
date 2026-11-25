@@ -1,4 +1,4 @@
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import type { ActionPlan } from "./types.js";
 
 export async function withOwnedRelease<T>(
@@ -35,7 +35,7 @@ function isActionPlan(value: unknown): value is ActionPlan {
 
 export function preserveActionOutcome<T>(value: T, cause: unknown, scope: "action" | "credential" | "policy" | "content"): T {
   if (!isActionPlan(value)) throw cause;
-  const dependencyCode = cause instanceof AxiError
+  const dependencyCode = cause instanceof SlkyError
     ? cause.code
     : cause instanceof Error && "code" in cause
       ? String(cause.code)

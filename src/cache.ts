@@ -4,7 +4,7 @@ import type { Dirent } from "node:fs";
 import { lstat, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { atomicWriteJson, readJson } from "./fs-store.js";
 import { credentialGeneration } from "./keychain.js";
 import { OwnedFileLock } from "./owned-lock.js";
@@ -113,17 +113,17 @@ export async function parseCacheCursor(cursor: string | undefined, snapshot: Cac
   try {
     value = cacheCursorSchema.parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
   } catch (cause) {
-    throw new AxiError({ code: "CURSOR_INVALID", message: "The cache cursor is malformed or is not a supported Slack AXI cursor.", exitCode: 2, suggestedCommand: restartCommand, cause });
+    throw new SlkyError({ code: "CURSOR_INVALID", message: "The cache cursor is malformed or is not a supported slky cursor.", exitCode: 2, suggestedCommand: restartCommand, cause });
   }
   if (!await integrity.verifyCursor(unsignedCacheCursor(value), value.s)) {
-    throw new AxiError({ code: "CURSOR_INVALID", message: "The cache cursor failed its integrity check.", exitCode: 2, suggestedCommand: restartCommand });
+    throw new SlkyError({ code: "CURSOR_INVALID", message: "The cache cursor failed its integrity check.", exitCode: 2, suggestedCommand: restartCommand });
   }
   if (value.t !== snapshot.team_id
     || value.a !== snapshot.actor_id
     || value.g !== snapshot.credential_generation
     || value.r !== snapshot.revision
     || value.f !== queryHash) {
-    throw new AxiError({ code: "CURSOR_STALE", message: "The cache cursor is stale or belongs to a different workspace, credential generation, or filter.", exitCode: 2, suggestedCommand: restartCommand });
+    throw new SlkyError({ code: "CURSOR_STALE", message: "The cache cursor is stale or belongs to a different workspace, credential generation, or filter.", exitCode: 2, suggestedCommand: restartCommand });
   }
   return value.o;
 }
@@ -170,7 +170,7 @@ export class CacheStore {
       const parsed = snapshotSchema.parse(snapshot);
       const existing = await this.load(parsed);
       if (existing?.revision === parsed.revision) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "CACHE_REVISION_REUSED",
           message: "A published cache snapshot revision cannot be reused for another write.",
         });
@@ -188,7 +188,7 @@ export class CacheStore {
     const requested = [...new Set(teamIds)].sort();
     if (requested.length === 0) return { team_ids: [], removed_scopes: 0, removed_unclassified_scopes: 0, removed_legacy_scopes: 0 };
     if (requested.some((teamId) => !/^[A-Z0-9]+$/.test(teamId))) {
-      throw new AxiError({ code: "CACHE_PURGE_INVALID", message: "Cache purge received an invalid Slack team identifier." });
+      throw new SlkyError({ code: "CACHE_PURGE_INVALID", message: "Cache purge received an invalid Slack team identifier." });
     }
     return this.transaction(async () => {
       const scopes = path.join(this.root, "scopes");
@@ -197,7 +197,7 @@ export class CacheStore {
         scopeRoot = await lstat(scopes);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw new AxiError({ code: "CACHE_PURGE_FAILED", message: "Could not inspect the local Slack cache root.", cause: error });
+          throw new SlkyError({ code: "CACHE_PURGE_FAILED", message: "Could not inspect the local Slack cache root.", cause: error });
         }
       }
       if (scopeRoot && !scopeRoot.isDirectory()) {
@@ -205,7 +205,7 @@ export class CacheStore {
           // Do not follow a substituted symlink at the scopes boundary.
           await rm(scopes, { force: true });
         } catch (error) {
-          throw new AxiError({ code: "CACHE_PURGE_FAILED", message: "Could not remove an unsafe local Slack cache scope root.", cause: error });
+          throw new SlkyError({ code: "CACHE_PURGE_FAILED", message: "Could not remove an unsafe local Slack cache scope root.", cause: error });
         }
         scopeRoot = undefined;
       }
@@ -215,7 +215,7 @@ export class CacheStore {
           entries = await readdir(scopes, { withFileTypes: true });
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-            throw new AxiError({ code: "CACHE_PURGE_FAILED", message: "Could not inspect local Slack cache scopes.", cause: error });
+            throw new SlkyError({ code: "CACHE_PURGE_FAILED", message: "Could not inspect local Slack cache scopes.", cause: error });
           }
         }
       }
@@ -256,7 +256,7 @@ export class CacheStore {
         }
       }
       if (failedScopes) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "CACHE_PURGE_FAILED",
           message: "Some local Slack cache scopes could not be removed.",
           details: { team_ids: requested, removed_scopes: removedScopes, failed_scopes: failedScopes },

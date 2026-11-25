@@ -34,12 +34,13 @@ jobs:
       - name: Install the packed artifact
         run: |
           package_version="$(node -p "require('./package.json').version")"
-          npm install --prefix "$RUNNER_TEMP/slack-axi-install" "$RUNNER_TEMP/slack-axi-cli-$package_version.tgz"
+          npm install --prefix "$RUNNER_TEMP/slky-install" "$RUNNER_TEMP/slky-$package_version.tgz"
       - name: Exercise the installed executable
         run: |
           package_version="$(node -p "require('./package.json').version")"
-          installed="$RUNNER_TEMP/slack-axi-install/node_modules/.bin/slack-axi"
-          test -f "$RUNNER_TEMP/slack-axi-install/node_modules/slack-axi-cli/skills/slack-axi/SKILL.md"
+          installed="$RUNNER_TEMP/slky-install/node_modules/.bin/slky"
+          test -f "$RUNNER_TEMP/slky-install/node_modules/slky/skills/slky/SKILL.md"
           test "$("$installed" --version)" = "$package_version"
           "$installed" --help >/dev/null
-          HOME="$RUNNER_TEMP/slack-axi-clean-home" "$installed" --output json | grep -q '"status": "setup_required"'
+          HOME="$RUNNER_TEMP/slky-clean-home" "$installed" --output json |
+            jq -e '.schema == "slky/v1" and .data.status == "setup_required"'

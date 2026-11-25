@@ -1,5 +1,6 @@
+import { VERSION } from "./version.js";
 import { z } from "zod";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { countSlackRequest } from "./request-budget.js";
 import { slackCookieHeader } from "./slack-public.js";
 
@@ -132,7 +133,7 @@ const authenticationErrors = new Set([
 
 function assertBrowserToken(token: string): void {
   if (!/^xoxc-(?:[A-Za-z0-9._~+/=-]|%[A-Fa-f0-9]{2})+$/.test(token)) {
-    throw new AxiError({ code: "AUTH_INVALID", message: "Slack browser authentication requires an xoxc token." });
+    throw new SlkyError({ code: "AUTH_INVALID", message: "Slack browser authentication requires an xoxc token." });
   }
 }
 
@@ -141,7 +142,7 @@ function browserApiBaseUrl(input: string): string {
   try {
     url = new URL(input);
   } catch {
-    throw new AxiError({ code: "SLACK_URL_INVALID", message: "Browser API base URL must be a valid Slack HTTPS API URL." });
+    throw new SlkyError({ code: "SLACK_URL_INVALID", message: "Browser API base URL must be a valid Slack HTTPS API URL." });
   }
   const hostname = url.hostname.toLowerCase();
   const workspaceLabels = hostname.endsWith(".slack.com")
@@ -159,7 +160,7 @@ function browserApiBaseUrl(input: string): string {
     || url.search
     || url.hash
     || path !== "/api") {
-    throw new AxiError({ code: "SLACK_URL_INVALID", message: "Browser API base URL must be an HTTPS /api URL on slack.com or a Slack workspace host." });
+    throw new SlkyError({ code: "SLACK_URL_INVALID", message: "Browser API base URL must be an HTTPS /api URL on slack.com or a Slack workspace host." });
   }
   return `${url.origin}/api`;
 }
@@ -181,7 +182,7 @@ function schemaChanged(label: string, value: unknown, kind: BrowserCallKind): ne
     ...(kind === "write" ? { dispatch_uncertain: true } : {}),
   };
   if (value instanceof z.ZodError) details.issues = value.issues;
-  throw new AxiError({
+  throw new SlkyError({
     code: "BROWSER_CAPABILITY_CHANGED",
     message: `Slack's private ${label} response no longer matches the supported schema.`,
     details,
@@ -229,7 +230,7 @@ export class BrowserSlackClient {
         headers: {
           Cookie: this.cookieHeader,
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "slack-axi-cli/0.1",
+          "User-Agent": `slky/${VERSION}`,
         },
         body: new URLSearchParams(
           Object.entries(form)
@@ -240,7 +241,7 @@ export class BrowserSlackClient {
         signal: AbortSignal.timeout(kind === "write" ? 15_000 : 10_000),
       });
     } catch (cause) {
-      throw new AxiError({
+      throw new SlkyError({
         code: isTimeout(cause) ? "REQUEST_TIMEOUT" : "BROWSER_NETWORK_ERROR",
         message: isTimeout(cause)
           ? "The Slack browser capability request timed out."
@@ -253,7 +254,7 @@ export class BrowserSlackClient {
 
     if (response.status === 429) {
       const seconds = retryAfter(response);
-      throw new AxiError({
+      throw new SlkyError({
         code: "RATE_LIMITED",
         message: "Slack rate limited the browser capability request.",
         retryable: true,
@@ -264,7 +265,7 @@ export class BrowserSlackClient {
 
     if (!response.ok) {
       const ambiguous = kind === "write" && (response.status === 408 || response.status === 425 || response.status >= 500);
-      throw new AxiError({
+      throw new SlkyError({
         code: "BROWSER_CAPABILITY_UNAVAILABLE",
         message: `Slack's browser capability returned HTTP ${response.status}.`,
         retryable: kind === "read" && (response.status === 408 || response.status === 425 || response.status >= 500),
@@ -289,7 +290,7 @@ export class BrowserSlackClient {
       if (typeof record.error !== "string" || !/^[a-z0-9_]{1,128}$/.test(record.error)) schemaChanged(method, record, kind);
       const slackError = record.error;
       const authoritative = authoritativeErrors.has(slackError);
-      throw new AxiError({
+      throw new SlkyError({
         code: authenticationErrors.has(slackError) ? "AUTH_INVALID" : "BROWSER_CAPABILITY_UNAVAILABLE",
         message: authenticationErrors.has(slackError)
           ? "Slack rejected the configured browser credential."
