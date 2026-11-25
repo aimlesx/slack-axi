@@ -159,6 +159,38 @@ In browser mode, `inbox` combines timeline badges and unread thread counts by co
 
 Use `read '#eng' --since 6h --include-threads` to retrieve parents and their replies in the same half-open window `[from,to)`. Replies to older parents fall outside discovery. Broadcast replies appear under their in-window parent. `--limit` counts unique parents and replies (default 50, maximum 100). `--max-requests` counts Slack attempts including cache population and retries (default 10, maximum 50). Use the emitted command to resume the original window. Per-thread results distinguish complete, empty, deferred, and failed retrieval.
 
+### Claude Code discovery
+
+To let Claude find this CLI when someone asks about Slack, install the optional skill in the project where Claude will run. Choose the source that matches your CLI installation.
+
+For a global npm install:
+
+```sh
+skill_dir="$(npm root --global)/slack-axi-cli/skills/slack-axi"
+```
+
+For Homebrew:
+
+```sh
+skill_dir="$(brew --prefix slack-axi)/libexec/lib/node_modules/slack-axi-cli/skills/slack-axi"
+```
+
+From the project root, link the packaged skill:
+
+```sh
+test -f "$skill_dir/SKILL.md" && mkdir -p .claude/skills && ln -s "$skill_dir" .claude/skills/
+```
+
+Open a fresh Claude Code session in the project and run `/skills` to verify that `slack-axi` is listed. Try “Find the Slack discussion and link the decision.” To remove the skill from this project, run:
+
+```sh
+unlink .claude/skills/slack-axi
+```
+
+See the [Claude Code skill documentation](https://code.claude.com/docs/en/skills) for additional installation scopes.
+
+From a source checkout with dependencies installed, `SLACK_AXI_CLAUDE_E2E=1 npm test -- test/claude-discovery.test.ts` runs two fresh sessions using your signed-in Claude Code and a local recording Slack fixture. The default test run exercises the same search, citation, and signed draft offline.
+
 ## Safe writes
 
 Remote writes stage a signed, 15-minute action by default:

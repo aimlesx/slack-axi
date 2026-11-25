@@ -39,6 +39,7 @@ jobs:
         run: |
           package_version="$(node -p "require('./package.json').version")"
           installed="$RUNNER_TEMP/slack-axi-install/node_modules/.bin/slack-axi"
+          test -f "$RUNNER_TEMP/slack-axi-install/node_modules/slack-axi-cli/skills/slack-axi/SKILL.md"
           test "$("$installed" --version)" = "$package_version"
           "$installed" --help >/dev/null
           HOME="$RUNNER_TEMP/slack-axi-clean-home" "$installed" --output json | grep -q '"status": "setup_required"'

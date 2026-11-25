@@ -6,6 +6,7 @@ const expectedPackageFiles = [
   "completions/_slack-axi",
   "completions/slack-axi.bash",
   "docs/slack-axi.1",
+  "skills/slack-axi/SKILL.md",
   "slack-app-manifest.json",
   "npm-shrinkwrap.json",
   "README.md",
