@@ -35,7 +35,15 @@ const snapshotSchema = z.object({
     inbox: sourceCoverageSchema,
     backend_calls: z.number().int().nonnegative(),
   }),
-  inbox: z.object({ unread_conversations: z.number(), mentions: z.number(), exact: z.boolean(), synced_at: z.string() }).optional(),
+  inbox: z.object({
+    unread_conversations: z.number(),
+    mentions: z.number(),
+    exact: z.boolean(),
+    synced_at: z.string(),
+    thread_coverage: z.enum(["available", "missing", "invalid", "unsupported"]).default("missing"),
+    thread_unread_count: z.number().nullable().default(null),
+    thread_mentions: z.number().nullable().default(null),
+  }).transform((inbox) => ({ ...inbox, exact: inbox.exact && inbox.thread_coverage === "available" })).optional(),
 });
 
 export type SourceCoverage = z.infer<typeof sourceCoverageSchema>;

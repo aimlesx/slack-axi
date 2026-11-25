@@ -52,8 +52,20 @@ describe("browser capability transport", () => {
       channels: [{ id: "C1", last_read: "1786712000.000001", latest: "1786713000.000001", mention_count: 2, has_unreads: true }],
       mpims: [],
       ims: [],
+      thread_coverage: "missing",
     });
     expect(slack.backendCalls).toBe(1);
+  });
+
+  it.each([
+    [{ unread_count_by_channel: {}, mention_count_by_channel: {} }, "available"],
+    [{ unread_count_by_channel: { C1: -1 }, mention_count_by_channel: {} }, "invalid"],
+    [null, "invalid"],
+  ])("validates thread counts independently (%j)", async (threads, status) => {
+    const channels = [{ id: "C1", mention_count: 0, has_unreads: false }];
+    const fetchMock = vi.fn(async () => json({ ok: true, channels, mpims: [], ims: [], threads }));
+    await expect(client(fetchMock).counts()).resolves.toMatchObject({ channels, thread_coverage: status });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

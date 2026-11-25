@@ -314,6 +314,8 @@ describe("cache coverage and cursors", () => {
           channels: [{ id: "C1", has_unreads: false, mention_count: 0 }],
           mpims: [],
           ims: [{ id: "D1", has_unreads: true, mention_count: 2 }],
+          thread_coverage: "available",
+          threads: { unread_count_by_channel: { C1: 2, D1: 1 }, mention_count_by_channel: { C1: 1, D1: 1 } },
         };
       },
     };
@@ -339,9 +341,9 @@ describe("cache coverage and cursors", () => {
 
     const result = await new SlackAxiApp({ auth, cache }).sync("work", { maxPages: 1 });
 
-    expect(result.snapshot.inbox).toMatchObject({ unread_conversations: 1, mentions: 2, exact: true });
+    expect(result.snapshot.inbox).toMatchObject({ unread_conversations: 2, mentions: 2, thread_unread_count: 3, thread_mentions: 2, thread_coverage: "available", exact: true });
     expect(result.snapshot.coverage.inbox).toEqual({ scanned: 2, complete: true });
-    expect(saved.at(-1)?.inbox).toMatchObject({ unread_conversations: 1, mentions: 2, exact: true });
+    expect(saved.at(-1)?.inbox).toEqual(result.snapshot.inbox);
   });
 
 });
