@@ -13,7 +13,7 @@ import { applyAction, applyCommand, directOrStage, newClientMessageId, reconcile
 import { SLACK_MESSAGE_MAX_CHARACTERS, SLACK_MESSAGE_MAX_UTF8_BYTES, validateSlackMessageText } from "./message-text.js";
 import { normalizeConversation, normalizeFile, normalizeMessage, normalizeUser, normalizeUsergroup, resolveConversation, resolveUser } from "./domain.js";
 import { parseMessageRef } from "./refs.js";
-import { resolveTimeRange } from "./time.js";
+import { resolveTimeRange, slackTimestampMicros } from "./time.js";
 import { serialize } from "./output.js";
 import { validateBroadcastMentions } from "./policy.js";
 import { DEFAULT_DOWNLOAD_MAX_BYTES, MAX_DOWNLOAD_MAX_BYTES, slackArray, slackRecord } from "./slack-public.js";
@@ -889,15 +889,69 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     }));
   });
 
-  program.command("catchup").option("--since <duration>", "lookback duration (default: 24h)", "24h").option("--max-conversations <n>", "conversation bound (default: 20)", positiveInteger, 20).option("--per-conversation <n>", "preview bound (default: 5)", positiveInteger, 5).addOption(new Option("--type <type>").choices(["channel", "group", "dm", "group_dm"])).action(async (options, command) => {
+  program.command("catchup").option("--since <duration>", "lookback duration (default: 24h)", "24h").option("--max-conversations <n>", "conversation bound (default: 20)", positiveInteger, 20).option("--per-conversation <n>", "preview bound (default: 5)", positiveInteger, 5)
+    .option("--conversation <name-or-id>", "select a conversation, repeat to select more", (value, values: string[]) => [...values, value], [])
+    .addOption(new Option("--type <type>").choices(["channel", "group", "dm", "group_dm"])).action(async (options, command) => {
     preflightTimeFlags({ since: options.since });
     ensureLimit(options.maxConversations, 50);
     ensureLimit(options.perConversation, 20);
     const ctx = await context(app, command);
     const range = resolveTimeRange({ since: options.since, timezone: ctx.profile.timezone });
-    const eligible = ctx.conversations
-      .filter((item) => !item.is_archived && (!options.type || item.type === options.type))
-      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const inScope = (item: Conversation): boolean => !item.is_archived && (!options.type || item.type === options.type);
+    let eligible: Conversation[];
+    const selection: Record<string, unknown> = { conversation_cache_complete: ctx.snapshot.coverage.conversations.complete };
+    if (options.conversation.length) {
+      const chosen = new Map<string, Conversation>();
+      for (const selector of new Set<string>(options.conversation)) {
+        const item = await resolveConversationFor(selector, ctx);
+        if (!inScope(item)) throw new AxiError({
+          code: "CATCHUP_CONVERSATION_OUT_OF_SCOPE",
+          message: "The selected conversation is archived or excluded by --type.",
+          details: { selector, conversation_id: item.id },
+          exitCode: 2,
+        });
+        chosen.set(item.id, item);
+        if (chosen.size > options.maxConversations) throw new AxiError({
+          code: "CATCHUP_SELECTION_EXCEEDS_LIMIT",
+          message: "Too many selected conversations. Increase --max-conversations or select fewer conversations.",
+          details: { max_conversations: options.maxConversations },
+          exitCode: 2,
+        });
+      }
+      eligible = [...chosen.values()];
+      selection.method = "explicit";
+    } else {
+      eligible = ctx.conversations.filter(inScope);
+      const live = new Map<string, bigint>();
+      if (ctx.browser && eligible.length) {
+        try {
+          for (const { id, timeline } of browserCountEntries(await ctx.browser.counts())) {
+            const activity = slackTimestampMicros(timeline?.latest);
+            if (activity !== undefined) live.set(id, activity);
+          }
+        } catch (error) {
+          selection.activity_error = error instanceof AxiError ? error.code : "SLACK_API_ERROR";
+        }
+      }
+      const cached = new Map<string, bigint>();
+      for (const conversation of ctx.snapshot.conversations ?? []) {
+        const activity = slackTimestampMicros(conversation.latest) ?? slackTimestampMicros(slackRecord(conversation.latest).ts);
+        if (typeof conversation.id === "string" && activity !== undefined) cached.set(conversation.id, activity);
+      }
+      const counts = { browser_counts: 0, conversation_cache: 0, unknown: 0 };
+      const activityById = new Map(eligible.map(({ id }) => {
+        const activity = live.get(id) ?? cached.get(id);
+        counts[live.has(id) ? "browser_counts" : cached.has(id) ? "conversation_cache" : "unknown"] += 1;
+        return [id, activity ?? -1n] as const;
+      }));
+      selection.method = counts.unknown === eligible.length ? "alphabetical" : "recent_activity";
+      selection.activity_timestamps = counts;
+      eligible.sort((a, b) => {
+        const left = activityById.get(a.id)!;
+        const right = activityById.get(b.id)!;
+        return left > right ? -1 : left < right ? 1 : a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+      });
+    }
     const candidates = eligible.slice(0, options.maxConversations);
     const skippedCount = Math.max(0, eligible.length - candidates.length);
     const skippedSample = eligible.slice(candidates.length, candidates.length + 5).map((item) => ({ conversation_id: item.id, reason: "max_conversations_bound" }));
@@ -906,7 +960,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const incomplete: Record<string, unknown>[] = [];
     await inBatches(candidates, 4, async (item) => {
       try {
-        const result = await ctx.public.history({ channel: item.id, oldest: String(range.from.getTime() / 1000), latest: String(range.to.getTime() / 1000), limit: options.perConversation });
+        const result = await ctx.public.history({ channel: item.id, oldest: String(range.from.getTime() / 1000), latest: String(range.to.getTime() / 1000), limit: options.perConversation, retry: false });
         if (!result.complete && !result.next) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned an incomplete history page without a continuation cursor." });
         const restartCommand = `slack-axi read ${item.id} --from ${range.from.toISOString()} --to ${range.to.toISOString()} --limit ${options.perConversation} --workspace ${shellArgument(ctx.profile.alias)}`;
         const readBinding = liveCursorBinding([ctx.profile.team_id, ctx.profile.actor_id, ctx.snapshot.credential_generation, item.id, range.from.toISOString(), range.to.toISOString()]);
@@ -918,7 +972,8 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
         failed.push({ conversation_id: item.id, code: error instanceof AxiError ? error.code : "UNKNOWN" });
       }
     });
-    summaries.sort((a, b) => String(slackRecord(a.conversation).name).localeCompare(String(slackRecord(b.conversation).name)) || String(slackRecord(a.conversation).id).localeCompare(String(slackRecord(b.conversation).id)));
+    const position = new Map(candidates.map((item, index) => [item.id, index]));
+    summaries.sort((a, b) => position.get(String(slackRecord(a.conversation).id))! - position.get(String(slackRecord(b.conversation).id))!);
     incomplete.sort((a, b) => String(a.conversation_id).localeCompare(String(b.conversation_id)));
     failed.sort((a, b) => String(a.conversation_id).localeCompare(String(b.conversation_id)));
     const reasons = [
@@ -934,7 +989,8 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     if (!ctx.snapshot.coverage.conversations.complete) hints.push(syncHint(ctx));
     emit(command, workspaceEnvelope(ctx, "catchup", {
       range: { from: range.from.toISOString(), to: range.to.toISOString(), timezone: range.timezone },
-      totals: { eligible: eligible.length, scanned: candidates.length, returned: summaries.length, incomplete: incomplete.length, failed: failed.length, skipped: skippedCount },
+      selection,
+      totals: { eligible: eligible.length, scanned: candidates.length, returned: summaries.length, incomplete: incomplete.length, failed: failed.length, skipped: skippedCount, omitted: skippedCount },
       conversations: summaries,
       incomplete,
       failed,
