@@ -1046,7 +1046,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
         const item = normalizeMessage(raw, ctx.profile.team_id, ref.conversationId, ctx.userMap, full, ctx.profile.actor_id);
         const permalink = await ctx.public.permalink(ref.conversationId, ref.ts);
         const label = markdownLabel(`${item.author ?? "Slack"} in ${ref.conversationId} at ${item.time}`);
-        citations.push({ ref: item.ref, author: item.author, conversation_id: ref.conversationId, time: item.time, permalink, text: item.text, text_chars: item.text_chars, text_truncated: item.text_truncated, markdown: `[${label}](<${permalink}>)` });
+        citations.push({ ref: item.ref, author: item.author, author_origin: item.author_origin, conversation_id: ref.conversationId, time: item.time, permalink, text: item.text, text_chars: item.text_chars, text_truncated: item.text_truncated, markdown: `[${label}](<${permalink}>)` });
       } catch (error) {
         failed.push({ ref: input, code: error instanceof AxiError ? error.code : "SLACK_API_ERROR", message: error instanceof Error ? error.message : String(error) });
       }

@@ -112,6 +112,13 @@ export interface User {
   deleted: boolean;
 }
 
+export interface CachedAuthor extends User {
+  /** Present when Slack supplied membership evidence. An empty list denotes conflicting or unusable evidence. */
+  workspace_ids?: string[];
+}
+
+export type AuthorOrigin = "self" | "same_workspace" | "other_workspace" | "app_or_bot" | "unknown";
+
 export interface Message {
   ref: MessageRef;
   has_rich_content?: true;
@@ -122,6 +129,7 @@ export interface Message {
   time: string;
   author_id?: string;
   author?: string;
+  author_origin: AuthorOrigin;
   text: string;
   text_chars: number;
   text_truncated: boolean;
