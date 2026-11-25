@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/cli.js";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import { MemoryCursorIntegrity } from "./helpers.js";
 
-async function jsonOutput(app: SlackAxiApp, args: string[]): Promise<Record<string, any>> {
+async function jsonOutput(app: SlkyApp, args: string[]): Promise<Record<string, any>> {
   const chunks: string[] = [];
   const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
   try {
-    await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", ...args]);
+    await createProgram(app).parseAsync(["node", "slky", "--output", "json", ...args]);
   } finally {
     write.mockRestore();
   }
@@ -26,8 +26,8 @@ function workspaceContext(publicClient: Record<string, unknown>) {
   };
 }
 
-function workspaceApp(context: ReturnType<typeof workspaceContext>): SlackAxiApp {
-  return { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlackAxiApp;
+function workspaceApp(context: ReturnType<typeof workspaceContext>): SlkyApp {
+  return { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlkyApp;
 }
 
 describe("live continuation accounting", () => {
@@ -44,7 +44,7 @@ describe("live continuation accounting", () => {
     const first = await jsonOutput(app, ["conversation", "members", "C1", ...display]);
     expect(first.page).toMatchObject({ shown: 2, total: 2, total_kind: "scanned", complete: false });
     expect(first.page.next_cursor).not.toBe("members-backend-2");
-    expect(first.hints[0].command).toBe(`slack-axi conversation members C1 --limit 2 --fields id,name --workspace work --cursor ${first.page.next_cursor}`);
+    expect(first.hints[0].command).toBe(`slky conversation members C1 --limit 2 --fields id,name --workspace work --cursor ${first.page.next_cursor}`);
 
     const cursorValue = JSON.parse(Buffer.from(first.page.next_cursor, "base64url").toString("utf8"));
     for (const changed of [
@@ -152,7 +152,7 @@ describe("live continuation accounting", () => {
     const first = await jsonOutput(app, ["read", "C1", ...range, ...display]);
     expect(first.page).toMatchObject({ shown: 2, total: 2, total_kind: "scanned", complete: false });
     expect(first.page.next_cursor).not.toBe("read-backend-2");
-    expect(first.hints[0].command).toBe(`slack-axi read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 2 --fields ref,text --full --workspace work --cursor ${first.page.next_cursor}`);
+    expect(first.hints[0].command).toBe(`slky read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 2 --fields ref,text --full --workspace work --cursor ${first.page.next_cursor}`);
 
     const second = await jsonOutput(app, ["--cursor", first.page.next_cursor, "read", "C1", ...range, ...display]);
     expect(second.page).toMatchObject({ shown: 1, total: 3, total_kind: "exact", complete: true });
@@ -166,8 +166,8 @@ describe("live continuation accounting", () => {
     const envelope = await jsonOutput(app, ["read", "C1", "--from", "2026-08-16T00:00:00Z", "--to", "2026-08-17T00:00:00Z", "--limit", "1"]);
     expect(envelope.hints).toHaveLength(2);
     expect(envelope.hints.map((hint: { command: string }) => hint.command)).toEqual([
-      "slack-axi read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 1 --workspace work --full",
-      `slack-axi read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 1 --workspace work --cursor ${envelope.page.next_cursor}`,
+      "slky read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 1 --workspace work --full",
+      `slky read C1 --from 2026-08-16T00:00:00.000Z --to 2026-08-17T00:00:00.000Z --limit 1 --workspace work --cursor ${envelope.page.next_cursor}`,
     ]);
   });
 
@@ -187,7 +187,7 @@ describe("live continuation accounting", () => {
     const first = await jsonOutput(app, ["thread", reference, ...display]);
     expect(first.page).toMatchObject({ shown: 1, total: 1, total_kind: "scanned", complete: false });
     expect(first.page.next_cursor).not.toBe("thread-backend-2");
-    expect(first.hints[0].command).toBe(`slack-axi thread ${reference} --limit 1 --fields ref,text --full --workspace work --cursor ${first.page.next_cursor}`);
+    expect(first.hints[0].command).toBe(`slky thread ${reference} --limit 1 --fields ref,text --full --workspace work --cursor ${first.page.next_cursor}`);
 
     const second = await jsonOutput(app, ["--cursor", first.page.next_cursor, "thread", reference, ...display]);
     expect(second.page).toMatchObject({ shown: 1, total: 2, total_kind: "exact", complete: true });
@@ -221,7 +221,7 @@ describe("live continuation accounting", () => {
       actions: new MemoryCursorIntegrity(),
       config: { async resolve() { return profile; } },
       async context() { return context; },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
     const first = await jsonOutput(app, ["later", "list", "--limit", "1"]);
     expect(first.data).toMatchObject({
@@ -253,14 +253,14 @@ describe("live continuation accounting", () => {
       actions: new MemoryCursorIntegrity(),
       config: { async resolve() { return profile; } },
       async context() { return context; },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
     const first = await jsonOutput(app, ["later", "list", "--limit", "1"]);
     const second = await jsonOutput(app, ["later", "list", "--limit", "1", "--cursor", first.page.next_cursor]);
     expect(second.data.pagination_count_drift).toMatchObject({ initial_total: 2, observed_total: 3, cumulative_scanned: 2 });
     expect(second.page).toMatchObject({ complete: false, source_complete: false, total: 2, total_kind: "scanned" });
     expect(second.coverage).toMatchObject({ requested: 2, scanned: 2, failed: 0, complete: false });
-    expect(second.hints[0].command).toBe("slack-axi later list --limit 1 --workspace work");
+    expect(second.hints[0].command).toBe("slky later list --limit 1 --workspace work");
   });
 
 });
@@ -285,9 +285,9 @@ describe("authentication stdin bounds", () => {
     const stdin = vi.spyOn(process, "stdin", "get").mockReturnValue(boundedStream as unknown as typeof process.stdin);
     const add = vi.fn();
     const context = vi.fn();
-    const app = { auth: { add }, context } as unknown as SlackAxiApp;
+    const app = { auth: { add }, context } as unknown as SlkyApp;
     try {
-      await expect(createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", "--user-token", "--from-stdin"])).rejects.toMatchObject({
+      await expect(createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", "--user-token", "--from-stdin"])).rejects.toMatchObject({
         code: "AUTH_INPUT_TOO_LARGE",
         exitCode: 2,
         details: { bytes_read: 17_000, maximum_utf8_bytes: 16_384 },
@@ -306,9 +306,9 @@ describe("authentication stdin bounds", () => {
     };
     const stdin = vi.spyOn(process, "stdin", "get").mockReturnValue(boundedStream as unknown as typeof process.stdin);
     const add = vi.fn();
-    const app = { auth: { add } } as unknown as SlackAxiApp;
+    const app = { auth: { add } } as unknown as SlkyApp;
     try {
-      await expect(createProgram(app).parseAsync(["node", "slack-axi", "auth", "add", "work", "--user-token", "--from-stdin"])).rejects.toMatchObject({ code: "STDIN_JSON_INVALID", exitCode: 2 });
+      await expect(createProgram(app).parseAsync(["node", "slky", "auth", "add", "work", "--user-token", "--from-stdin"])).rejects.toMatchObject({ code: "STDIN_JSON_INVALID", exitCode: 2 });
     } finally {
       stdin.mockRestore();
     }

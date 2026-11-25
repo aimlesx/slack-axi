@@ -7,13 +7,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionStore, sha256, uuidv7 } from "../src/actions.js";
-import { AxiError, redact, toErrorEnvelope } from "../src/errors.js";
+import { SlkyError, redact, toErrorEnvelope } from "../src/errors.js";
 import { ACTION_SIGNING_ACCOUNT } from "../src/keychain.js";
 import { applyAction } from "../src/mutations.js";
 import { serialize } from "../src/output.js";
 import { PolicyStore } from "../src/policy.js";
 import { createMessageRef, parseMessageRef } from "../src/refs.js";
-import type { SlackAxiApp } from "../src/app.js";
+import type { SlkyApp } from "../src/app.js";
 import { MemorySecrets } from "./helpers.js";
 
 const exec = promisify(execFile);
@@ -57,16 +57,16 @@ afterEach(() => vi.useRealTimers());
 
 describe("structured contracts", () => {
   it("emits strict TOON and preserves the envelope during field projection", () => {
-    const value = { schema: "slack-axi/v1", ok: true, data: { messages: [{ ref: "a", text: "secret", extra: 1 }] } };
+    const value = { schema: "slky/v1", ok: true, data: { messages: [{ ref: "a", text: "secret", extra: 1 }] } };
     const encoded = serialize(value, "toon", ["ref"]);
-    expect(decode(encoded, { strict: true })).toEqual({ schema: "slack-axi/v1", ok: true, data: { messages: [{ ref: "a" }] } });
+    expect(decode(encoded, { strict: true })).toEqual({ schema: "slky/v1", ok: true, data: { messages: [{ ref: "a" }] } });
   });
 
   it("normalizes undefined without mutating the caller so TOON and JSON stay equivalent", () => {
     const sparse = new Array<unknown>(2);
     sparse[1] = "kept";
     const value = {
-      schema: "slack-axi/v1",
+      schema: "slky/v1",
       ok: true,
       optional: undefined,
       data: { rows: [{ id: "one", optional: undefined }, undefined, { id: "two" }], sparse },
@@ -75,7 +75,7 @@ describe("structured contracts", () => {
     const toon = decode(serialize(value, "toon"), { strict: true });
 
     expect(toon).toEqual(json);
-    expect(json).toEqual({ schema: "slack-axi/v1", ok: true, data: { rows: [{ id: "one" }, null, { id: "two" }], sparse: [null, "kept"] } });
+    expect(json).toEqual({ schema: "slky/v1", ok: true, data: { rows: [{ id: "one" }, null, { id: "two" }], sparse: [null, "kept"] } });
     expect(Object.hasOwn(value, "optional")).toBe(true);
     expect(Object.hasOwn(value.data.rows[0]!, "optional")).toBe(true);
     expect(value.data.rows[1]).toBeUndefined();
@@ -84,12 +84,12 @@ describe("structured contracts", () => {
 
   it("projects singleton detail records without altering envelope metadata or hints", () => {
     const value = {
-      schema: "slack-axi/v1",
+      schema: "slky/v1",
       ok: true,
       workspace: { id: "T1", alias: "work", actor_id: "U1", auth_kind: "user_token" },
       scope: { command: "user.get" },
       data: { user: { id: "U2", name: "alice", display_name: "Alice", email: "alice@example.com" } },
-      hints: [{ command: "slack-axi user search alice", reason: "Search again." }],
+      hints: [{ command: "slky user search alice", reason: "Search again." }],
     };
     const encoded = serialize(value, "toon", ["id"], ["id", "name", "display_name", "email"]);
     expect(decode(encoded, { strict: true })).toEqual({
@@ -99,19 +99,19 @@ describe("structured contracts", () => {
   });
 
   it("does not expose a full singleton when an optional requested field is absent", () => {
-    const value = { schema: "slack-axi/v1", ok: true, data: { user: { id: "U2", name: "alice", display_name: "Alice" } } };
+    const value = { schema: "slky/v1", ok: true, data: { user: { id: "U2", name: "alice", display_name: "Alice" } } };
     const encoded = serialize(value, "json", ["email"], ["id", "name", "display_name", "email"]);
-    expect(JSON.parse(encoded)).toEqual({ schema: "slack-axi/v1", ok: true, data: { user: {} } });
+    expect(JSON.parse(encoded)).toEqual({ schema: "slky/v1", ok: true, data: { user: {} } });
   });
 
   it("preserves aggregate wrappers that share a field name with projected rows", () => {
-    const value = { schema: "slack-axi/v1", ok: true, data: { ref: "T1/C1/1.000001", count: 2, reactions: [{ name: "eyes", count: 1, mine: false }, { name: "done", count: 3, mine: true }] } };
+    const value = { schema: "slky/v1", ok: true, data: { ref: "T1/C1/1.000001", count: 2, reactions: [{ name: "eyes", count: 1, mine: false }, { name: "done", count: 3, mine: true }] } };
     const encoded = serialize(value, "json", ["count"], ["name", "count", "mine"]);
-    expect(JSON.parse(encoded)).toEqual({ schema: "slack-axi/v1", ok: true, data: { ref: "T1/C1/1.000001", count: 2, reactions: [{ count: 1 }, { count: 3 }] } });
+    expect(JSON.parse(encoded)).toEqual({ schema: "slky/v1", ok: true, data: { ref: "T1/C1/1.000001", count: 2, reactions: [{ count: 1 }, { count: 3 }] } });
   });
 
   it("emits JSONL as one complete envelope", () => {
-    const encoded = serialize({ schema: "slack-axi/v1", ok: true, data: { items: [] } }, "jsonl");
+    const encoded = serialize({ schema: "slky/v1", ok: true, data: { items: [] } }, "jsonl");
     expect(encoded.trim().split("\n")).toHaveLength(1);
     expect(JSON.parse(encoded)).toMatchObject({ ok: true, data: { items: [] } });
   });
@@ -122,7 +122,7 @@ describe("structured contracts", () => {
     const diagnostic = `Bearer ${secret}, d=${cookie}; xoxd=${cookie}. keep this prose`;
     expect(redact(diagnostic)).toBe("[REDACTED], [REDACTED]; [REDACTED]. keep this prose");
     expect(redact(`Error: request failed with ${cookie}\n    at verbose (file.ts:1:2)`)).toBe("Error: request failed with [REDACTED]\n    at verbose (file.ts:1:2)");
-    const result = toErrorEnvelope(new AxiError({
+    const result = toErrorEnvelope(new SlkyError({
       code: "AUTH_INVALID",
       message: `bad ${secret}`,
       candidates: [{ cookie }],
@@ -149,7 +149,7 @@ describe("stable references", () => {
 
 describe("signed action storage", () => {
   it("stores a signed v2 plan, private content, revisioned state, and terminal cleanup", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: { name: "eyes" }, payload: { name: "eyes", secret_text: "discard me" } });
@@ -167,7 +167,7 @@ describe("signed action storage", () => {
   });
 
   it("publishes a complete action atomically and cleans a handled pre-publication interruption", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     let reachedPublish!: (directory: string) => void;
     let resumePublish!: () => void;
     const reached = new Promise<string>((resolve) => { reachedPublish = resolve; });
@@ -205,7 +205,7 @@ describe("signed action storage", () => {
   });
 
   it("keeps hard-crashed creators out of list and GC purges their message and upload content", async () => {
-    const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "slack-axi-create-crash-"));
+    const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "slky-create-crash-"));
     const root = path.join(fixtureRoot, "actions");
     const keyFile = path.join(fixtureRoot, "key.txt");
     const source = path.join(fixtureRoot, "sensitive-upload.bin");
@@ -250,7 +250,7 @@ describe("signed action storage", () => {
   }, 20_000);
 
   it("purges an aged creation orphan even when its PID has been reused by a live process", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const orphan = path.join(root, `.creating-${uuidv7()}-${process.pid}-${"b".repeat(32)}`);
     await mkdir(orphan, { mode: 0o700 });
     const payload = path.join(orphan, "payload.json");
@@ -264,7 +264,7 @@ describe("signed action storage", () => {
   });
 
   it("lists around and garbage-collects aged legacy incomplete action directories", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const valid = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { name: "eyes" } });
     const orphanId = uuidv7();
@@ -285,7 +285,7 @@ describe("signed action storage", () => {
   });
 
   it("never regenerates a missing signing key while a creation orphan exists", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const orphan = path.join(root, `.creating-${uuidv7()}-999999999-${"a".repeat(32)}`);
     await mkdir(orphan, { mode: 0o700 });
     await writeFile(path.join(orphan, "payload.json"), JSON.stringify({ text: "signed-under-a-lost-key" }));
@@ -303,7 +303,7 @@ describe("signed action storage", () => {
   });
 
   it("detects tampering of every signed plan field, state, and payload", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: { text: "hello" }, payload: { conversation_id: "C1", text: "hello", client_msg_id: "id" } });
@@ -328,7 +328,7 @@ describe("signed action storage", () => {
   });
 
   it("fails closed for wrong or missing signing keys", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { name: "eyes" } });
@@ -345,7 +345,7 @@ describe("signed action storage", () => {
   it("enforces legal transitions and expires approvals without replay", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { name: "eyes" } });
     await expect(store.transition(plan, "applied")).rejects.toMatchObject({ code: "ACTION_STATE_INVALID" });
@@ -354,7 +354,7 @@ describe("signed action storage", () => {
   });
 
   it("returns ACTION_BUSY for a live lock and recovers a dead applying owner to unknown", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "once", client_msg_id: "id" } });
     const lock = path.join(root, plan.id, ".lock");
@@ -370,7 +370,7 @@ describe("signed action storage", () => {
   });
 
   it("fences a reused live PID by its exact process instance and recovers applying to unknown", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const processIdentity = async () => ({ startedAtMs: 2_000, instanceId: "currentprocessinstance000000000001" });
     const store = new ActionStore(root, new MemorySecrets(), { isProcessAlive: () => true, processIdentity });
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "once", client_msg_id: "id" } });
@@ -396,7 +396,7 @@ describe("signed action storage", () => {
   });
 
   it("fails closed for live or young malformed owners and safely takes over a stale incomplete owner", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", ts: "1.000001", name: "eyes", ref: "T1/C1/1.000001" } });
     const lock = path.join(root, plan.id, ".lock");
@@ -419,7 +419,7 @@ describe("signed action storage", () => {
   });
 
   it("releases only its own nonce and does not delete a successor owner", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { name: "eyes" } });
     const ownerFile = path.join(root, plan.id, ".lock", "owner.json");
@@ -434,7 +434,7 @@ describe("signed action storage", () => {
   });
 
   it("recovers through a new election when the elected stale reclaimer crashed", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const store = new ActionStore(root, new MemorySecrets());
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { name: "eyes" } });
     const lock = path.join(root, plan.id, ".lock");
@@ -453,7 +453,7 @@ describe("signed action storage", () => {
   });
 
   it("serializes signing-key recovery and force deletion with owned locks", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const keyLock = path.join(root, ".signing-key.lock");
     await mkdir(keyLock, { recursive: true });
     await writeFile(path.join(keyLock, "owner.json"), JSON.stringify({ pid: 999_999_999, nonce: "5".repeat(32), claimed_at: new Date(0).toISOString() }));
@@ -471,7 +471,7 @@ describe("signed action storage", () => {
   });
 
   it("serializes 20 child-process applies to exactly one remote call", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: { text: "once" }, payload: { conversation_id: "C1", text: "once", client_msg_id: "fixed-id" } });
@@ -486,7 +486,7 @@ describe("signed action storage", () => {
   }, 20_000);
 
   it("coordinates 20 stale-lock reclaimers without deleting a successor lock", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: { text: "once" }, payload: { conversation_id: "C1", text: "once", client_msg_id: "stale-fixed-id" } });
@@ -510,7 +510,7 @@ describe("signed action storage", () => {
   }, 20_000);
 
   it("elects one paused stale reclaimer and blocks delayed contenders before unlink", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const secrets = new MemorySecrets();
     const store = new ActionStore(root, secrets);
     const plan = await store.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: { text: "once" }, payload: { conversation_id: "C1", text: "once", client_msg_id: "barrier-fixed-id" } });
@@ -519,7 +519,7 @@ describe("signed action storage", () => {
     await writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: 999_999_999, nonce: "7".repeat(32), claimed_at: new Date(0).toISOString() }));
     const keyFile = path.join(root, "key.txt");
     const counterFile = path.join(root, "calls.txt");
-    const barrier = await mkdtemp(path.join(os.tmpdir(), "slack-axi-lock-barrier-"));
+    const barrier = await mkdtemp(path.join(os.tmpdir(), "slky-lock-barrier-"));
     const ready = path.join(barrier, "ready");
     const release = path.join(barrier, "release");
     await writeFile(keyFile, secrets.values.get(ACTION_SIGNING_ACCOUNT)!);
@@ -545,27 +545,27 @@ describe("signed action storage", () => {
   }, 20_000);
 
   it("turns an interrupted applying action into unknown without a remote retry", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "once", client_msg_id: "id" } });
     const applying = await actions.transition(plan, "applying");
-    const app = { actions } as unknown as SlackAxiApp;
+    const app = { actions } as unknown as SlkyApp;
     await expect(applyAction(app, applying, applying.approval)).rejects.toMatchObject({ code: "ACTION_COMMIT_UNKNOWN" });
     expect((await actions.get(plan.id)).state).toBe("unknown");
   });
 
   it("returns an applied retry as an explicit exit-zero no-op", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "reaction.add", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", ts: "1.000001", name: "eyes", ref: "T1/C1/1.000001" } });
     const applying = await actions.transition(plan, "applying");
     const applied = await actions.transition(applying, "applied", { result: { noop: false } });
-    const result = await applyAction({ actions } as unknown as SlackAxiApp, applied, applied.approval);
+    const result = await applyAction({ actions } as unknown as SlkyApp, applied, applied.approval);
     expect(result).toMatchObject({ state: "applied", result: { noop: true, already_applied: true } });
   });
 
   it("checks the live Slack actor immediately before dispatch and leaves a mismatch replayable", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "do not send", client_msg_id: "fixed-id" } });
     const postMessage = vi.fn();
@@ -574,7 +574,7 @@ describe("signed action storage", () => {
       public: { async authTest() { return { team_id: "T1", user_id: "U2" }; }, postMessage },
       snapshot: {}, conversations: [], users: [], userMap: new Map(),
     };
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
     await expect(applyAction(app, plan, plan.approval)).rejects.toMatchObject({
       code: "ACTION_IDENTITY_MISMATCH",
       details: { signed_actor_id: "U1", live_actor_id: "U2" },
@@ -586,7 +586,7 @@ describe("signed action storage", () => {
   it("rechecks expiry after live identity reads and never dispatches a newly expired plan", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: {}, payload: { conversation_id: "C1", text: "do not send", client_msg_id: "expiry-id" } });
     vi.setSystemTime(new Date(Date.parse(plan.expires_at) - 1));
@@ -602,7 +602,7 @@ describe("signed action storage", () => {
       },
       snapshot: {}, conversations: [], users: [], userMap: new Map(),
     };
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
 
     await expect(applyAction(app, plan, plan.approval)).rejects.toMatchObject({ code: "ACTION_EXPIRED" });
     expect(postMessage).not.toHaveBeenCalled();
@@ -610,7 +610,7 @@ describe("signed action storage", () => {
   });
 
   it("does not retain the sent message body in terminal action state", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const sensitive = `release-secret-${"x".repeat(5_010)}`;
     const plan = await actions.create({ workspace_id: "T1", actor_id: "U1", operation: "message.send", target_ids: ["C1"], preview: { text: sensitive }, payload: { conversation_id: "C1", text: sensitive, client_msg_id: "privacy-id" } });
@@ -623,7 +623,7 @@ describe("signed action storage", () => {
       },
       snapshot: {}, conversations: [], users: [], userMap: new Map(),
     };
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
 
     const applied = await applyAction(app, plan, plan.approval);
     expect(applied).toMatchObject({ state: "applied", result: { message: { ref: "T1/C1/1786712345.001200", text_chars: sensitive.length } } });
@@ -637,7 +637,7 @@ describe("signed action storage", () => {
   it("expires never-read actions during GC and cleans message and upload content", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00Z"));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-actions-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-actions-"));
     const source = path.join(root, "large-upload.bin");
     await writeFile(source, Buffer.alloc(1024 * 1024, 7));
     const store = new ActionStore(path.join(root, "actions"), new MemorySecrets());
@@ -664,7 +664,7 @@ describe("policy", () => {
   it("rejects wildcard targets and requires allowlisted unfurls", async () => {
     const store = new PolicyStore("/unused/policy.json");
     expect(() => store.validate({ version: 1, allow_direct_apply: [{ operation: "message.send", conversations: ["*"] }], allowed_unfurl_domains: [] })).toThrowError(/invalid/i);
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-"));
     const globalFile = path.join(root, "policy.json");
     const projectFile = path.join(root, "project.json");
     const narrowed = new PolicyStore(globalFile, projectFile);

@@ -92,8 +92,8 @@ jobs:
             "PRIVACY.md",
             "README.md",
             "SECURITY.md",
-            "completions/_slack-axi",
-            "completions/slack-axi.bash",
+            "completions/_slky",
+            "completions/slky.bash",
             "dist/actions.js",
             "dist/app.js",
             "dist/auth.js",
@@ -124,10 +124,10 @@ jobs:
             "dist/time.js",
             "dist/types.js",
             "dist/version.js",
-            "docs/slack-axi.1",
+            "docs/slky.1",
             "npm-shrinkwrap.json",
             "package.json",
-            "skills/slack-axi/SKILL.md",
+            "skills/slky/SKILL.md",
             "slack-app-manifest.json",
           ]);
           const artifactFiles = artifact.files.map(({ path }) => path);
@@ -149,10 +149,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          install_root="$RUNNER_TEMP/slack-axi-install"
+          install_root="$RUNNER_TEMP/slky-install"
           package_version="$(node -p "require('./package.json').version")"
           npm install --prefix "$install_root" "$RUNNER_TEMP/${{ steps.pack.outputs.filename }}"
-          installed="$install_root/node_modules/.bin/slack-axi"
+          installed="$install_root/node_modules/.bin/slky"
           test "$("$installed" --version)" = "$package_version"
           "$installed" --help > /dev/null
           node --input-type=module <<'NODE'
@@ -160,11 +160,13 @@ jobs:
           import { homedir } from "node:os";
           import { join } from "node:path";
 
-          const slackAxiPaths = [
+          const slkyPaths = [
+            join(homedir(), "Library", "Application Support", "slky"),
+            join(homedir(), "Library", "Caches", "slky"),
             join(homedir(), "Library", "Application Support", "slack-axi"),
             join(homedir(), "Library", "Caches", "slack-axi"),
           ];
-          for (const path of slackAxiPaths) {
+          for (const path of slkyPaths) {
             try {
               await access(path);
             } catch (error) {
@@ -174,7 +176,7 @@ jobs:
             throw new Error(`release runner is not clean: ${path} already exists`);
           }
           NODE
-          "$installed" --output json | grep -q '"status": "setup_required"'
+          "$installed" --output json | jq -e '.schema == "slky/v1" and .data.status == "setup_required"'
 
       - name: Upload the verified npm package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

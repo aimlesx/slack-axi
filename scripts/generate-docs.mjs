@@ -14,7 +14,7 @@ const zshChildren = Object.entries(children)
   .map(([root, commands]) => `      ${root}) _values 'subcommand' ${commands.join(" ")} ;;`)
   .join("\n");
 
-const zsh = `#compdef slack-axi
+const zsh = `#compdef slky
 
 local -a roots
 roots=(${roots.join(" ")})
@@ -44,7 +44,7 @@ const bashChildren = Object.entries(children)
   .map(([root, commands]) => `      ${root}) candidates="${commands.join(" ")}" ;;`)
   .join("\n");
 
-const bash = `_slack_axi_complete() {
+const bash = `_slky_complete() {
   local candidates="${roots.join(" ")} ${globalFlags}"
   if [[ $COMP_CWORD -eq 2 ]]; then
     case "${"${COMP_WORDS[1]}"}" in
@@ -56,7 +56,7 @@ ${bashChildren}
   fi
   COMPREPLY=($(compgen -W "$candidates" -- "${"${COMP_WORDS[COMP_CWORD]}"}"))
 }
-complete -F _slack_axi_complete slack-axi
+complete -F _slky_complete slky
 `;
 
 const commandSections = keys.map((key) => {
@@ -67,14 +67,14 @@ const commandSections = keys.map((key) => {
   return `.SS ${key.toUpperCase()}\n${metadata.description}\n.PP\nDefaults: ${defaults}\n.br\nIncompatible combinations: ${incompatibilities}\n${examples}`;
 }).join("\n");
 
-const man = `.TH SLACK-AXI 1 "August 19, 2026" "slack-axi-cli ${VERSION}" "User Commands"
+const man = `.TH SLKY 1 "November 25, 2026" "slky ${VERSION}" "User Commands"
 .SH NAME
-slack-axi \- agent-facing Slack CLI with bounded reads and signed staged writes
+slky \- agent-facing Slack CLI with bounded reads and signed staged writes
 .SH SYNOPSIS
-.B slack-axi
+.B slky
 [global options] command [command options]
 .SH DESCRIPTION
-Every stdout path is one slack-axi/v1 envelope encoded as strict TOON by default, or JSON/JSONL when requested. Operational failures exit 1 and invalid usage exits 2. Diagnostics appear on stderr only with --verbose.
+Every stdout path is one slky/v1 envelope encoded as strict TOON by default, or JSON/JSONL when requested. Operational failures exit 1 and invalid usage exits 2. Diagnostics appear on stderr only with --verbose.
 .SH GLOBAL OPTIONS
 --workspace selects a configured alias or team ID. --output defaults to toon. --fields validates command-specific field names. --limit bounds collections. --cursor continues stable pages. --full expands long text. --verbose enables redacted diagnostics.
 .SH COMMANDS
@@ -82,21 +82,23 @@ ${commandSections}
 .SH ACTION SAFETY
 Staged actions expire after 15 minutes and are approved with --approval BASE64URL-HMAC. Unknown commits are never replayed. Use action reconcile when a remote identity exists or action abandon to acknowledge unresolved uncertainty.
 .SH FILES
-~/Library/Application Support/slack-axi/config.json
+~/Library/Application Support/slky/config.json
 .br
-~/Library/Application Support/slack-axi/policy.json
+~/Library/Application Support/slky/policy.json
 .br
-~/Library/Application Support/slack-axi/actions/
+~/Library/Application Support/slky/actions/
 .br
-~/Library/Caches/slack-axi/
+~/Library/Caches/slky/
+.PP
+Installations with existing Slack AXI data use the corresponding slack-axi directories in Application Support and Caches. The default project policy is .slky-policy.json on a fresh installation and .slack-axi-policy.json on an upgrade.
 .SH KEYCHAIN
-Service dev.slack-axi. The local action signing account is local:action-signing:v1.
+Fresh installations use service dev.slky. Existing Slack AXI installations use dev.slack-axi. The local action signing account is local:action-signing:v1.
 .SH SEE ALSO
 README.md, PRIVACY.md, SECURITY.md, slack-app-manifest.json
 `;
 
 await Promise.all([
-  writeFile("completions/_slack-axi", zsh),
-  writeFile("completions/slack-axi.bash", bash),
-  writeFile("docs/slack-axi.1", man),
+  writeFile("completions/_slky", zsh),
+  writeFile("completions/slky.bash", bash),
+  writeFile("docs/slky.1", man),
 ]);

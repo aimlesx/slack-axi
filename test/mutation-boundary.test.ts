@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
-import { AxiError } from "../src/errors.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
+import { SlkyError } from "../src/errors.js";
 import { applyAction, reconcileAction } from "../src/mutations.js";
 import type { ActionPlan } from "../src/types.js";
 import { MemorySecrets } from "./helpers.js";
@@ -24,7 +24,7 @@ function context(publicClient: Record<string, unknown>, browser?: Record<string,
   } as unknown as WorkspaceContext;
 }
 
-function app(actions: ActionStore, workspace: WorkspaceContext): SlackAxiApp {
+function app(actions: ActionStore, workspace: WorkspaceContext): SlkyApp {
   return {
     actions,
     policy: {
@@ -32,7 +32,7 @@ function app(actions: ActionStore, workspace: WorkspaceContext): SlackAxiApp {
       async validateUploadComment() {},
     },
     async context() { return workspace; },
-  } as unknown as SlackAxiApp;
+  } as unknown as SlkyApp;
 }
 
 describe("remote mutation boundary", () => {
@@ -40,7 +40,7 @@ describe("remote mutation boundary", () => {
     ["missing", { ok: true, message: { text: "sent" } }],
     ["malformed", { ok: true, ts: "not-a-slack-timestamp", message: { ts: "not-a-slack-timestamp", text: "sent" } }],
   ])("preserves unknown after one acknowledged post with a %s timestamp", async (_kind, response) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-post-boundary-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-post-boundary-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -67,7 +67,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("does not let a local persistence failure after another acknowledged write become not_applied", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-reaction-boundary-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-reaction-boundary-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -80,7 +80,7 @@ describe("remote mutation boundary", () => {
     const addReaction = vi.fn(async () => ({ noop: false }));
     const originalTransition = actions.transitionLocked.bind(actions);
     vi.spyOn(actions, "transitionLocked").mockImplementation(async (current, state, changes, discard) => {
-      if (state === "applied") throw new AxiError({ code: "LOCAL_RESULT_INVALID", message: "Injected local persistence failure." });
+      if (state === "applied") throw new SlkyError({ code: "LOCAL_RESULT_INVALID", message: "Injected local persistence failure." });
       return originalTransition(current, state, changes, discard);
     });
 
@@ -90,7 +90,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("still reports ACTION_COMMIT_UNKNOWN when persisting unknown itself fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-unknown-persistence-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-unknown-persistence-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -106,7 +106,7 @@ describe("remote mutation boundary", () => {
     vi.spyOn(actions, "transitionLocked").mockImplementation(async (current, state, changes, discard) => {
       if (state === "unknown" && failUnknownOnce) {
         failUnknownOnce = false;
-        throw new AxiError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected unknown-state persistence failure." });
+        throw new SlkyError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected unknown-state persistence failure." });
       }
       return originalTransition(current, state, changes, discard);
     });
@@ -146,7 +146,7 @@ describe("remote mutation boundary", () => {
     cases.push({ operation: "later.snooze", payload: { item_id: "C1", ts: "1786712345.001200", remind_at: 1_786_800_000 }, publicClient: {}, browser: { laterSnooze }, remote: laterSnooze });
 
     for (const item of cases) {
-      const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-write-boundary-"));
+      const root = await mkdtemp(path.join(os.tmpdir(), "slky-write-boundary-"));
       const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
       const uploadPath = path.join(root, "fixture.bin");
       if (item.upload) await writeFile(uploadPath, "immutable bytes");
@@ -161,7 +161,7 @@ describe("remote mutation boundary", () => {
       });
       const originalTransition = actions.transitionLocked.bind(actions);
       vi.spyOn(actions, "transitionLocked").mockImplementation(async (current: ActionPlan, state, changes, discard) => {
-        if (state === "applied") throw new AxiError({ code: "LOCAL_RESULT_INVALID", message: "Injected post-dispatch failure." });
+        if (state === "applied") throw new SlkyError({ code: "LOCAL_RESULT_INVALID", message: "Injected post-dispatch failure." });
         return originalTransition(current, state, changes, discard);
       });
 
@@ -172,7 +172,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("keeps an ambiguous Later write unknown with only reconciliation identity retained", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-later-boundary-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-later-boundary-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -183,7 +183,7 @@ describe("remote mutation boundary", () => {
       payload: { item_id: "C1", ts: "1786712345.001200", remind_at: 1_786_800_000 },
     });
     const laterSnooze = vi.fn(async () => {
-      throw new AxiError({
+      throw new SlkyError({
         code: "REQUEST_TIMEOUT",
         message: "The private write timed out.",
         details: { dispatch_uncertain: true },
@@ -192,7 +192,7 @@ describe("remote mutation boundary", () => {
 
     await expect(applyAction(app(actions, context({}, { laterSnooze })), plan, plan.approval)).rejects.toMatchObject({
       code: "ACTION_COMMIT_UNKNOWN",
-      suggestedCommand: `slack-axi action reconcile ${plan.id}`,
+      suggestedCommand: `slky action reconcile ${plan.id}`,
     });
     expect(laterSnooze).toHaveBeenCalledOnce();
     expect(await actions.get(plan.id)).toMatchObject({
@@ -203,7 +203,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("rejects browser-session revocation before calling the public API", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-browser-revoke-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-browser-revoke-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -223,7 +223,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("resets an acknowledged DM-open prerequisite after its recovery identity is durable", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-dm-boundary-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-dm-boundary-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -234,7 +234,7 @@ describe("remote mutation boundary", () => {
       payload: { user_id: "U2", text: "not sent", client_msg_id: "dm-id", unfurl_links: false },
     });
     const openDm = vi.fn(async () => "D1");
-    const postMessage = vi.fn(async () => { throw new AxiError({ code: "SLACK_PERMISSION_DENIED", message: "denied", details: { dispatch_uncertain: false } }); });
+    const postMessage = vi.fn(async () => { throw new SlkyError({ code: "SLACK_PERMISSION_DENIED", message: "denied", details: { dispatch_uncertain: false } }); });
 
     await expect(applyAction(app(actions, context({ openDm, postMessage })), plan, plan.approval)).rejects.toMatchObject({ code: "SLACK_PERMISSION_DENIED" });
     expect(openDm).toHaveBeenCalledOnce();
@@ -243,7 +243,7 @@ describe("remote mutation boundary", () => {
   });
 
   it("recovers a DM identity after partial-state persistence fails without replaying the message", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-dm-recovery-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-dm-recovery-"));
     const actions = new ActionStore(root, new MemorySecrets());
     const plan = await actions.create({
       workspace_id: "T1",
@@ -264,7 +264,7 @@ describe("remote mutation boundary", () => {
     vi.spyOn(actions, "transitionLocked").mockImplementation(async (current, state, changes, discard) => {
       if (state === "partial" && failPartialOnce) {
         failPartialOnce = false;
-        throw new AxiError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected partial-state persistence failure." });
+        throw new SlkyError({ code: "DIRECTORY_FSYNC_FAILED", message: "Injected partial-state persistence failure." });
       }
       return originalTransition(current, state, changes, discard);
     });

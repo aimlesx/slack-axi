@@ -1,4 +1,4 @@
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import type { WorkspaceContext } from "./app.js";
 import type { ActionPlan } from "./types.js";
 
@@ -13,7 +13,7 @@ export async function assertLiveActionIdentity(context: WorkspaceContext, action
   const actorId = typeof identity.user_id === "string" ? identity.user_id : undefined;
   if (teamId === action.workspace_id && actorId === action.actor_id) return;
 
-  throw new AxiError({
+  throw new SlkyError({
     code: "ACTION_IDENTITY_MISMATCH",
     message: "The live Slack credential does not match the workspace and actor in the signed action plan; no mutation was dispatched.",
     details: {
@@ -22,6 +22,6 @@ export async function assertLiveActionIdentity(context: WorkspaceContext, action
       live_workspace_id: teamId ?? null,
       live_actor_id: actorId ?? null,
     },
-    suggestedCommand: `slack-axi auth doctor --workspace ${context.profile.alias}`,
+    suggestedCommand: `slky auth doctor --workspace ${context.profile.alias}`,
   });
 }

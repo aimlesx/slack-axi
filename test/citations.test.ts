@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decode } from "@toon-format/toon";
 import { createProgram } from "../src/cli.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -12,7 +12,7 @@ const anonymousTs = "1786712347.001200";
 const anonymousRef = `T1/C1/${anonymousTs}`;
 const hostilePermalink = `https://acme.slack.com/archives/C1/p${anonymousTs.replace(".", "")}?thread_ts=$(printf%20pwned)\`printf%20pwned\``;
 
-function citationApp(options: { displayName?: string; permalink?: string } = {}): SlackAxiApp {
+function citationApp(options: { displayName?: string; permalink?: string } = {}): SlkyApp {
   const context = {
     profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token", timezone: "UTC" },
     public: {
@@ -28,14 +28,14 @@ function citationApp(options: { displayName?: string; permalink?: string } = {})
     users: [],
     userMap: new Map([["U1", { id: "U1", name: "filip", display_name: options.displayName ?? "Filip", real_name: "Filip", is_bot: false, deleted: false }]]),
   } as unknown as WorkspaceContext;
-  return { async context() { return context; } } as unknown as SlackAxiApp;
+  return { async context() { return context; } } as unknown as SlkyApp;
 }
 
 async function citeOutput(args: string[], format: "json" | "toon", app = citationApp()): Promise<string> {
   let output = "";
   const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => { output += String(chunk); return true; });
   try {
-    await createProgram(app).parseAsync(["node", "slack-axi", "--output", format, ...args]);
+    await createProgram(app).parseAsync(["node", "slky", "--output", format, ...args]);
     return output;
   } finally {
     write.mockRestore();
@@ -73,7 +73,7 @@ describe("message citation previews", () => {
     expect(toon).toEqual(json);
     expect(json.data.citations[0]).toMatchObject({ ref: anonymousRef, markdown: expect.stringContaining("[Slack in C1") });
     expect(json.data.citations[0]).not.toHaveProperty("author");
-    expect(json.hints[0].command).toBe(`slack-axi message cite '${hostilePermalink}' --full --workspace work`);
+    expect(json.hints[0].command).toBe(`slky message cite '${hostilePermalink}' --full --workspace work`);
   });
 
   it("escapes Slack-controlled author text and wraps the validated permalink as a Markdown destination", async () => {

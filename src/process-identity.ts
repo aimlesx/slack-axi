@@ -33,6 +33,8 @@ const CURRENT_PROCESS_IDENTITY: ProcessIdentity = {
   instanceId: randomUUID().replaceAll("-", ""),
 };
 
+// Lock records can be read by both executables when they share a legacy
+// installation. The socket prefix is part of that on-disk protocol.
 const PROCESS_FENCE_PATTERN = /^\/(?:private\/)?tmp\/slack-axi-cli-lock-\d+-[a-f0-9]{32}\.sock$/;
 const CURRENT_PROCESS_FENCE = `/tmp/slack-axi-cli-lock-${process.getuid?.() ?? 0}-${CURRENT_PROCESS_IDENTITY.instanceId!}.sock`;
 let fenceServer: Server | undefined;

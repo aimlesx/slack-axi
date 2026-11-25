@@ -1,4 +1,4 @@
-#compdef slack-axi
+#compdef slky
 
 local -a roots
 roots=(auth sync conversation user usergroup emoji read thread search inbox catchup message reaction file mark-read later policy action)

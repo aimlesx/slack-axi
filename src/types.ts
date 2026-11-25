@@ -64,7 +64,7 @@ export interface CoverageInfo {
 }
 
 export interface SuccessEnvelope<T> {
-  schema: "slack-axi/v1";
+  schema: "slky/v1";
   ok: true;
   workspace?: WorkspaceIdentity;
   scope: Record<string, string | number | boolean>;
@@ -75,7 +75,7 @@ export interface SuccessEnvelope<T> {
 }
 
 export interface ErrorEnvelope {
-  schema: "slack-axi/v1";
+  schema: "slky/v1";
   ok: false;
   error: {
     code: string;

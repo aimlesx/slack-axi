@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 import { createProgram } from "../src/cli.js";
 import { applyAction, directOrStage, stageAction } from "../src/mutations.js";
 import { PolicyStore, validateBroadcastMentions } from "../src/policy.js";
@@ -39,17 +39,17 @@ function workspace(publicClient: Record<string, unknown>): WorkspaceContext {
 async function harness(publicClient: Record<string, unknown>, initial = policyValue()): Promise<{
   actions: ActionStore;
   policy: PolicyStore;
-  app: SlackAxiApp;
+  app: SlkyApp;
   context: WorkspaceContext;
   policyFile: string;
 }> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-race-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-race-"));
   const policyFile = path.join(root, "policy.json");
   const policy = new PolicyStore(policyFile, path.join(root, "project.json"));
   await policy.replace(initial);
   const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
   const context = workspace(publicClient);
-  const app = { actions, policy, async context() { return context; } } as unknown as SlackAxiApp;
+  const app = { actions, policy, async context() { return context; } } as unknown as SlkyApp;
   return { actions, policy, app, context, policyFile };
 }
 
@@ -110,8 +110,8 @@ describe("direct-apply policy lease", () => {
     const output: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { output.push(String(value)); return true; });
     let revocationFinished = false;
-    const revocation = createProgram({ policy: state.policy } as unknown as SlackAxiApp)
-      .parseAsync(["node", "slack-axi", "--output", "json", "policy", "apply", revokedPolicyFile])
+    const revocation = createProgram({ policy: state.policy } as unknown as SlkyApp)
+      .parseAsync(["node", "slky", "--output", "json", "policy", "apply", revokedPolicyFile])
       .then(() => { revocationFinished = true; })
       .finally(() => { write.mockRestore(); });
     const ordering = await Promise.race([
@@ -134,7 +134,7 @@ describe("direct-apply policy lease", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-16T12:00:00.000Z"));
     try {
-      const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-expiry-"));
+      const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-expiry-"));
       const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
       const postMessage = vi.fn();
       const context = workspace({
@@ -149,7 +149,7 @@ describe("direct-apply policy lease", () => {
           return callback();
         },
       };
-      const app = { actions, policy, async context() { return context; } } as unknown as SlackAxiApp;
+      const app = { actions, policy, async context() { return context; } } as unknown as SlkyApp;
 
       await expect(directOrStage(app, context, sendInput())).rejects.toMatchObject({ code: "ACTION_EXPIRED" });
       expect(postMessage).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe("broadcast mention safety", () => {
     const app = {
       actions: { create },
       policy: { async validateUnfurls() {}, async validateUploadComment() {} },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     const context = { profile: { team_id: "T1", actor_id: "U1" } } as WorkspaceContext;
 
     await expect(stageAction(app, context, {
@@ -258,8 +258,8 @@ describe("broadcast mention safety", () => {
 
   it("rejects a CLI broadcast before workspace context and exposes --allow-broadcast in help", async () => {
     let contextCalls = 0;
-    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "message", "send", "--to", "C1", "--text", "<!here> deploy"])).rejects.toMatchObject({ code: "BROADCAST_MENTION_REQUIRES_OPT_IN", exitCode: 2 });
+    const app = { async context() { contextCalls += 1; throw new Error("context must not run"); } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "message", "send", "--to", "C1", "--text", "<!here> deploy"])).rejects.toMatchObject({ code: "BROADCAST_MENTION_REQUIRES_OPT_IN", exitCode: 2 });
     expect(contextCalls).toBe(0);
     const send = createProgram(app).commands.find((command) => command.name() === "message")?.commands.find((command) => command.name() === "send");
     expect(send?.helpInformation()).toContain("--allow-broadcast");
@@ -275,7 +275,7 @@ describe("broadcast mention safety", () => {
 
     await expect(directOrStage(state.app, state.context, sendInput("<!here> hello", true))).rejects.toMatchObject({
       code: "BROADCAST_POLICY_DENIED",
-      suggestedCommand: expect.stringContaining("slack-axi action apply"),
+      suggestedCommand: expect.stringContaining("slky action apply"),
     });
     expect(postMessage).not.toHaveBeenCalled();
     const staged = (await state.actions.list())[0]!;
@@ -298,7 +298,7 @@ describe("broadcast mention safety", () => {
 
 describe("coordinated policy replacement CLI", () => {
   it("validates and atomically applies a policy through PolicyStore.replace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-policy-cli-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-policy-cli-"));
     const policyFile = path.join(root, "installed.json");
     const source = path.join(root, "candidate.json");
     await writeFile(source, JSON.stringify(policyValue(true, true)));
@@ -306,7 +306,7 @@ describe("coordinated policy replacement CLI", () => {
     const chunks: string[] = [];
     const write = vi.spyOn(process.stdout, "write").mockImplementation((value) => { chunks.push(String(value)); return true; });
     try {
-      await createProgram({ policy } as unknown as SlackAxiApp).parseAsync(["node", "slack-axi", "--output", "json", "policy", "apply", source]);
+      await createProgram({ policy } as unknown as SlkyApp).parseAsync(["node", "slky", "--output", "json", "policy", "apply", source]);
     } finally {
       write.mockRestore();
     }

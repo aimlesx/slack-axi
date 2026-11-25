@@ -52,7 +52,7 @@ function selectFields(value: unknown, fields?: string[], targetFields = fields):
   if (typeof value !== "object" || value === null || Array.isArray(value)) return projectData(value, fields, targetFields);
 
   const record = value as Record<string, unknown>;
-  if (record.schema === "slack-axi/v1" && "data" in record) {
+  if (record.schema === "slky/v1" && "data" in record) {
     const command = (record.scope as { command?: string } | undefined)?.command;
     const data = record.data as Record<string, unknown> | undefined;
     if (data && (command === "read" || command === "thread" || command === "search.messages") && Array.isArray(data.messages)) {

@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
-import { SlackAxiApp } from "../src/app.js";
+import { SlkyApp } from "../src/app.js";
 import { AuthService } from "../src/auth.js";
 import { cacheIdentity, CacheStore, type CachePurgeResult, type CacheSnapshot } from "../src/cache.js";
 import { ConfigStore } from "../src/config.js";
-import { AxiError } from "../src/errors.js";
+import { SlkyError } from "../src/errors.js";
 import { credentialAccounts, credentialGeneration, KEYCHAIN_SERVICE } from "../src/keychain.js";
 import { OwnedFileLock } from "../src/owned-lock.js";
 import { appPaths } from "../src/paths.js";
@@ -92,13 +92,13 @@ function publicIdentity(actorId: string): PublicSlackClient {
 
 describe("fresh namespace and transactional authentication", () => {
   it("uses the release package state and Keychain namespaces", () => {
-    expect(appPaths("/Users/test").data).toContain("Application Support/slack-axi");
-    expect(appPaths("/Users/test").cache).toContain("Caches/slack-axi");
-    expect(KEYCHAIN_SERVICE).toBe("dev.slack-axi");
+    expect(appPaths("/Users/test").data).toContain("Application Support/slky");
+    expect(appPaths("/Users/test").cache).toContain("Caches/slky");
+    expect(KEYCHAIN_SERVICE).toBe("dev.slky");
   });
 
   it("updates a stale default alias when the same team is re-aliased", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     await config.save({ version: 1, default_workspace: "old", profiles: [profile("old")] });
     const updated = await config.upsert(profile("new"));
@@ -115,7 +115,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("commits a first profile without leaving its active generation pending cleanup", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const secrets = new MemorySecrets();
     const auth = new AuthService(config, secrets, () => fakePublic, () => "abcdefghijklmnop");
@@ -126,7 +126,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("stages and commits a browser credential pair as one generation", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const secrets = new MemorySecrets();
     const auth = new AuthService(config, secrets, () => fakePublic, () => "abcdefghijklmnop");
@@ -146,7 +146,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("rolls back a partially written browser generation without touching the active pair", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = browserProfile();
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -167,7 +167,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("retires and removes both secrets of a replaced browser generation", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = browserProfile();
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -188,7 +188,7 @@ describe("fresh namespace and transactional authentication", () => {
 
   it("retires every obsolete Keychain pointer when switching authentication kinds", async () => {
     for (const direction of ["browser_to_user", "user_to_browser"] as const) {
-      const root = await mkdtemp(path.join(os.tmpdir(), `slack-axi-auth-kind-${direction}-`));
+      const root = await mkdtemp(path.join(os.tmpdir(), `slky-auth-kind-${direction}-`));
       const config = new ConfigStore(path.join(root, "config.json"));
       const old = direction === "browser_to_user" ? browserProfile() : profile();
       await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -207,7 +207,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("loads both browser secrets into isolated public and browser clients", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const active = browserProfile("work", "abcdefghijklmnop");
     await config.save({ version: 1, default_workspace: "work", profiles: [active] });
@@ -227,7 +227,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("probes browser capabilities independently when another probe fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const active = browserProfile("work", "abcdefghijklmnop");
     await config.save({ version: 1, default_workspace: "work", profiles: [active] });
@@ -235,10 +235,10 @@ describe("fresh namespace and transactional authentication", () => {
     secrets.values.set(active.keychain_accounts[0]!, "xoxc-session");
     secrets.values.set(active.keychain_accounts[1]!, "xoxd-cookie");
     const brokenPublic = {
-      async authTest() { throw new AxiError({ code: "AUTH_INVALID", message: "public failed" }); },
+      async authTest() { throw new SlkyError({ code: "AUTH_INVALID", message: "public failed" }); },
     } as unknown as PublicSlackClient;
     const counts = vi.fn(async () => ({ channels: [], mpims: [], ims: [] }));
-    const mutedChannels = vi.fn(async () => { throw new AxiError({ code: "BROWSER_CAPABILITY_CHANGED", message: "prefs changed" }); });
+    const mutedChannels = vi.fn(async () => { throw new SlkyError({ code: "BROWSER_CAPABILITY_CHANGED", message: "prefs changed" }); });
     const laterList = vi.fn(async () => ({ items: [] }));
     const browserClient = { counts, mutedChannels, laterList } as unknown as BrowserSlackClient;
     const auth = new AuthService(config, secrets, () => brokenPublic, undefined, undefined, undefined, () => browserClient);
@@ -266,7 +266,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("fails closed before credential staging when the actor timezone cannot be read", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const secrets = new MemorySecrets();
     const publicWithoutTimezone = {
@@ -281,7 +281,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("keeps the old actor and credential usable throughout an interrupted generation replacement", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = profile();
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -311,7 +311,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("switches to a fresh generation atomically and preserves a replaced default alias", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = profile("old");
     await config.save({ version: 1, default_workspace: "old", profiles: [old] });
@@ -330,7 +330,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("refuses to reuse an active generation even if the generation source repeats", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = { ...profile(), keychain_accounts: credentialAccounts("T1", "abcdefghijklmnop") };
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -344,7 +344,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("does not delete a freshly committed generation when config persistence reports a late failure", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class CommitThenFailConfig extends ConfigStore {
       override async upsert(next: AuthProfile): Promise<never> {
         await super.upsert(next);
@@ -365,7 +365,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("retains a fresh generation when an ambiguous config commit cannot be reloaded", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class CommitThenFailAndHideOnceConfig extends ConfigStore {
       private hideLoads = 0;
 
@@ -403,7 +403,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("leaves the active generation intact and records failed retirement of the old one", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = profile();
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -420,7 +420,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("reports cleanup-bookkeeping failure without masking a committed profile replacement", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class FailingCleanupTrackingConfig extends ConfigStore {
       override async clearPendingCleanup(): Promise<never> {
         throw new Error("injected config cleanup bookkeeping failure");
@@ -436,7 +436,7 @@ describe("fresh namespace and transactional authentication", () => {
     await expect(auth.add({ alias: "work", token: "xoxp-new" })).rejects.toMatchObject({
       code: "AUTH_REMOVE_PARTIAL",
       retryable: false,
-      suggestedCommand: "slack-axi auth doctor",
+      suggestedCommand: "slky auth doctor",
       details: {
         profile_alias: "work",
         profile_active: true,
@@ -451,7 +451,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("restores the previous Keychain value if configuration saving fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class FailingConfig extends ConfigStore {
       override async upsert(): Promise<never> { throw new Error("injected config failure"); }
     }
@@ -467,7 +467,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("records failed credential deletion and doctor clears it before probing", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     await config.save({ version: 1, default_workspace: "work", profiles: [profile()] });
     const secrets = new MemorySecrets();
@@ -485,7 +485,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("never deletes an active credential pointer during pending-cleanup recovery", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const active = profile();
     await config.save({ version: 1, default_workspace: "work", profiles: [active], pending_credential_cleanup: [...active.keychain_accounts] });
@@ -499,7 +499,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("reports doctor cleanup-ledger failure as AUTH_REMOVE_PARTIAL without deleting an active credential", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class FailingCleanupTrackingConfig extends ConfigStore {
       override async clearPendingCleanup(): Promise<never> {
         throw new Error("injected config cleanup bookkeeping failure");
@@ -515,7 +515,7 @@ describe("fresh namespace and transactional authentication", () => {
     await expect(auth.doctor()).rejects.toMatchObject({
       code: "AUTH_REMOVE_PARTIAL",
       retryable: false,
-      suggestedCommand: "slack-axi auth doctor",
+      suggestedCommand: "slky auth doctor",
       details: { cleanup_tracking: { code: "CREDENTIAL_CLEANUP_TRACKING_FAILED", cleanup_tracking_complete: false } },
     });
     expect(secrets.values.get(active.keychain_accounts[0]!)).toBe("xoxp-test");
@@ -523,7 +523,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("makes profile removal durable before recording a partial Keychain deletion", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     await config.save({ version: 1, default_workspace: "work", profiles: [profile()] });
     const secrets = new MemorySecrets();
@@ -537,7 +537,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("re-durabilizes a visible profile removal before deleting credentials after a late config error", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class CommitThenFailRemoveConfig extends ConfigStore {
       private failOnce = true;
       override async remove(selector: string, options: { stageCacheCleanup?: boolean } = {}) {
@@ -563,7 +563,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("retains credentials when a removal error cannot be reloaded for verification", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class CommitThenFailAndHideRemoveConfig extends ConfigStore {
       private hideLoads = 0;
       override async remove(selector: string, options: { stageCacheCleanup?: boolean } = {}): Promise<never> {
@@ -595,7 +595,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("reports cleanup-bookkeeping failure without masking a committed profile removal", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     class FailingCleanupTrackingConfig extends ConfigStore {
       override async clearPendingCleanup(): Promise<never> {
         throw new Error("injected config cleanup bookkeeping failure");
@@ -610,7 +610,7 @@ describe("fresh namespace and transactional authentication", () => {
     await expect(auth.remove("work")).rejects.toMatchObject({
       code: "AUTH_REMOVE_PARTIAL",
       retryable: false,
-      suggestedCommand: "slack-axi auth doctor",
+      suggestedCommand: "slky auth doctor",
       details: {
         removed: { alias: "work", team_id: "T1" },
         profile_removed: true,
@@ -624,7 +624,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("rejects a split alias/team collision before staging or deleting credentials", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const alpha = profileFor("alpha", "T1", "U1", "old-t1");
     const beta = profileFor("beta", "T2", "U2", "old-t2");
@@ -640,7 +640,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("serializes direct config mutators across child processes without lost updates", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const filename = path.join(root, "config.json");
     await new ConfigStore(filename).save({ version: 1, profiles: [] });
     const fixture = path.join(import.meta.dirname, "fixtures", "config-child.mjs");
@@ -653,7 +653,7 @@ describe("fresh namespace and transactional authentication", () => {
   }, 20_000);
 
   it("keeps a staged add isolated from doctor cleanup until its pointer switch completes", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const filename = path.join(root, "config.json");
     const old = profile();
     await new ConfigStore(filename).save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -695,7 +695,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("prevents an in-flight doctor result from overwriting a replacement generation", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const filename = path.join(root, "config.json");
     const old = profile();
     await new ConfigStore(filename).save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -727,7 +727,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("rejects a stale profile update after the credential generation changed", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const stale = profile();
     await config.save({ version: 1, default_workspace: "work", profiles: [stale] });
@@ -739,7 +739,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("serializes concurrent use and remove operations into a valid default", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const filename = path.join(root, "config.json");
     const alpha = profileFor("alpha", "T1", "U1", "alpha-account");
     const beta = profileFor("beta", "T2", "U2", "beta-account");
@@ -763,7 +763,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("never lets a delayed former owner unlink a successor lock", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-lock-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-lock-"));
     const filename = path.join(root, "config.lock");
     let alive = true;
     const options = { timeoutMs: 2_000, retryMs: 1, isProcessAlive: () => alive };
@@ -778,7 +778,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("reclaims a shared lock whose live PID belongs to a newer process birth", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-lock-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-lock-"));
     const filename = path.join(root, "config.lock");
     await writeFile(filename, JSON.stringify({
       version: 1,
@@ -806,7 +806,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("serializes concurrent add operations into one coherent active generation", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-config-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-config-"));
     const filename = path.join(root, "config.json");
     await new ConfigStore(filename).save({ version: 1, profiles: [] });
     const secrets = new MemorySecrets();
@@ -828,7 +828,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("purges all cached actors and generations when authentication is removed", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-auth-purge-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-auth-purge-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const active = { ...profile(), keychain_accounts: credentialAccounts("T1", "generation-active") };
     await config.save({ version: 1, default_workspace: "work", profiles: [active] });
@@ -856,7 +856,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("fences an in-flight sync so removal purges its final published cache", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-auth-purge-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-auth-purge-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const active = profile();
     await config.save({ version: 1, default_workspace: "work", profiles: [active] });
@@ -876,7 +876,7 @@ describe("fresh namespace and transactional authentication", () => {
       async emoji() { return {}; },
     } as unknown as PublicSlackClient;
     const auth = new AuthService(config, secrets, () => publicClient, undefined, cache, emptyActionPurger);
-    const app = new SlackAxiApp({ config, auth, cache, secrets });
+    const app = new SlkyApp({ config, auth, cache, secrets });
 
     const syncing = app.sync("work", { maxPages: 1 });
     await entered.promise;
@@ -892,7 +892,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("purges prior cache generations after successful reauthentication", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-auth-purge-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-auth-purge-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     const old = { ...profile(), keychain_accounts: credentialAccounts("T1", "generation-old-01") };
     await config.save({ version: 1, default_workspace: "work", profiles: [old] });
@@ -914,7 +914,7 @@ describe("fresh namespace and transactional authentication", () => {
   });
 
   it("reports cache purge failure as durable partial auth cleanup", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-auth-purge-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-auth-purge-"));
     const config = new ConfigStore(path.join(root, "config.json"));
     await config.save({ version: 1, default_workspace: "work", profiles: [profile()] });
     const secrets = new MemorySecrets();
@@ -922,7 +922,7 @@ describe("fresh namespace and transactional authentication", () => {
     class FailingCache extends CacheStore {
       fail = true;
       override async purgeTeams(_teamIds: string[]): Promise<CachePurgeResult> {
-        if (this.fail) throw new AxiError({ code: "CACHE_PURGE_FAILED", message: "injected cache purge failure" });
+        if (this.fail) throw new SlkyError({ code: "CACHE_PURGE_FAILED", message: "injected cache purge failure" });
         return super.purgeTeams(_teamIds);
       }
     }

@@ -1,6 +1,6 @@
 import type { ErrorEnvelope } from "./types.js";
 
-export class AxiError extends Error {
+export class SlkyError extends Error {
   readonly code: string;
   readonly exitCode: 1 | 2;
   readonly retryable: boolean;
@@ -21,7 +21,7 @@ export class AxiError extends Error {
     cause?: unknown;
   }) {
     super(options.message, { cause: options.cause });
-    this.name = "AxiError";
+    this.name = "SlkyError";
     this.code = options.code;
     this.exitCode = options.exitCode ?? 1;
     this.retryable = options.retryable ?? false;
@@ -54,18 +54,18 @@ function redactUnknown(value: unknown): unknown {
 }
 
 export function toErrorEnvelope(error: unknown): { envelope: ErrorEnvelope; exitCode: 1 | 2 } {
-  const normalized = error instanceof AxiError
+  const normalized = error instanceof SlkyError
     ? error
-    : new AxiError({
+    : new SlkyError({
         code: "INTERNAL_ERROR",
-        message: "Slack AXI encountered an unexpected internal error.",
+        message: "slky encountered an unexpected internal error.",
         cause: error,
       });
 
   return {
     exitCode: normalized.exitCode,
     envelope: {
-      schema: "slack-axi/v1",
+      schema: "slky/v1",
       ok: false,
       error: {
         code: normalized.code,

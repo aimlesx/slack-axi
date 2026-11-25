@@ -1,4 +1,4 @@
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { messageRichFields } from "./rich-content.js";
 import { createMessageRef } from "./refs.js";
 import { slackArray, slackRecord } from "./slack-public.js";
@@ -99,7 +99,7 @@ export function truncateText(value: string, full: boolean, maximum = 600): { tex
 
 export function normalizeMessage(raw: Record<string, unknown>, teamId: string, conversationId: string, users: Map<string, CachedAuthor>, full = false, actorId?: string, includeRich = false): Message {
   const ts = text(raw.ts);
-  if (!ts) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message without a timestamp." });
+  if (!ts) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message without a timestamp." });
   const authorId = text(raw.user, text(raw.bot_id));
   const author = users.get(authorId);
   const messageText = truncateText(text(raw.text), full);
@@ -144,35 +144,35 @@ export function entityMaps(snapshot: CacheSnapshot): { conversations: Conversati
   return { conversations: snapshot.conversations.map(normalizeConversation), users, userMap };
 }
 
-export function resolveUser(selector: string, users: User[], sourceComplete = true, syncCommand = "slack-axi sync --all --max-pages 100"): User {
+export function resolveUser(selector: string, users: User[], sourceComplete = true, syncCommand = "slky sync --all --max-pages 100"): User {
   const needle = selector.replace(/^@/, "").toLowerCase();
   // Slack IDs and handles are stable/unique selectors. Human-facing names and
   // email are not safe to treat as unique until the user source is complete.
   const stableExact = users.filter((user) => [user.id, user.name].some((value) => value.toLowerCase() === needle));
   if (stableExact.length === 1) return stableExact[0]!;
-  if (stableExact.length > 1) throw new AxiError({ code: "USER_AMBIGUOUS", message: `User '${selector}' is ambiguous.`, exitCode: 2, candidates: stableExact.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
+  if (stableExact.length > 1) throw new SlkyError({ code: "USER_AMBIGUOUS", message: `User '${selector}' is ambiguous.`, exitCode: 2, candidates: stableExact.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
   const humanExact = users.filter((user) => [user.display_name, user.real_name, user.email].filter(Boolean).some((value) => String(value).toLowerCase() === needle));
-  if (!sourceComplete) throw new AxiError({ code: "RESOLUTION_INCOMPLETE", message: `User '${selector}' cannot be resolved conclusively from the incomplete user cache.`, suggestedCommand: syncCommand });
+  if (!sourceComplete) throw new SlkyError({ code: "RESOLUTION_INCOMPLETE", message: `User '${selector}' cannot be resolved conclusively from the incomplete user cache.`, suggestedCommand: syncCommand });
   if (humanExact.length === 1) return humanExact[0]!;
-  if (humanExact.length > 1) throw new AxiError({ code: "USER_AMBIGUOUS", message: `User '${selector}' is ambiguous.`, exitCode: 2, candidates: humanExact.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
+  if (humanExact.length > 1) throw new SlkyError({ code: "USER_AMBIGUOUS", message: `User '${selector}' is ambiguous.`, exitCode: 2, candidates: humanExact.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
   const partial = users.filter((user) => [user.name, user.display_name, user.real_name, user.email].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
   const matches = partial;
-  if (matches.length !== 1) throw new AxiError({ code: matches.length ? "USER_AMBIGUOUS" : "USER_NOT_FOUND", message: matches.length ? `User '${selector}' is ambiguous.` : `User '${selector}' was not found.`, exitCode: 2, candidates: matches.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
+  if (matches.length !== 1) throw new SlkyError({ code: matches.length ? "USER_AMBIGUOUS" : "USER_NOT_FOUND", message: matches.length ? `User '${selector}' is ambiguous.` : `User '${selector}' was not found.`, exitCode: 2, candidates: matches.slice(0, 10).map(({ id, name, display_name, real_name }) => ({ id, name, display_name, real_name })) });
   return matches[0]!;
 }
 
-export function resolveConversation(selector: string, conversations: Conversation[], users: User[], sourceComplete = true, usersComplete = true, syncCommand = "slack-axi sync --all --max-pages 100"): Conversation {
+export function resolveConversation(selector: string, conversations: Conversation[], users: User[], sourceComplete = true, usersComplete = true, syncCommand = "slky sync --all --max-pages 100"): Conversation {
   if (selector.startsWith("@")) {
     const user = resolveUser(selector, users, usersComplete, syncCommand);
     const matches = conversations.filter((conversation) => conversation.type === "dm" && conversation.member_ids?.includes(user.id));
     if (matches.length === 1) return matches[0]!;
-    if (!sourceComplete) throw new AxiError({ code: "RESOLUTION_INCOMPLETE", message: `A DM for ${selector} cannot be ruled out because the conversation cache is incomplete.`, suggestedCommand: syncCommand });
-    throw new AxiError({ code: "DM_NOT_FOUND", message: `No existing DM conversation was found for ${selector}.`, details: { user_id: user.id } });
+    if (!sourceComplete) throw new SlkyError({ code: "RESOLUTION_INCOMPLETE", message: `A DM for ${selector} cannot be ruled out because the conversation cache is incomplete.`, suggestedCommand: syncCommand });
+    throw new SlkyError({ code: "DM_NOT_FOUND", message: `No existing DM conversation was found for ${selector}.`, details: { user_id: user.id } });
   }
   const needle = selector.replace(/^#/, "").toLowerCase();
   const matches = conversations.filter((conversation) => conversation.id === selector || conversation.name.toLowerCase() === needle);
-  if (matches.length === 0 && !sourceComplete) throw new AxiError({ code: "RESOLUTION_INCOMPLETE", message: `Conversation '${selector}' cannot be resolved conclusively from the incomplete conversation cache.`, suggestedCommand: syncCommand });
-  if (matches.length !== 1) throw new AxiError({ code: matches.length ? "CONVERSATION_AMBIGUOUS" : "CONVERSATION_NOT_FOUND", message: matches.length ? `Conversation '${selector}' is ambiguous.` : `Conversation '${selector}' was not found.`, exitCode: 2, candidates: matches.map(({ id, name, type }) => ({ id, name, type })) });
+  if (matches.length === 0 && !sourceComplete) throw new SlkyError({ code: "RESOLUTION_INCOMPLETE", message: `Conversation '${selector}' cannot be resolved conclusively from the incomplete conversation cache.`, suggestedCommand: syncCommand });
+  if (matches.length !== 1) throw new SlkyError({ code: matches.length ? "CONVERSATION_AMBIGUOUS" : "CONVERSATION_NOT_FOUND", message: matches.length ? `Conversation '${selector}' is ambiguous.` : `Conversation '${selector}' was not found.`, exitCode: 2, candidates: matches.map(({ id, name, type }) => ({ id, name, type })) });
   return matches[0]!;
 }
 

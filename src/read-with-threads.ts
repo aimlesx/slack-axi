@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CursorIntegrity } from "./cache.js";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { createMessageRef } from "./refs.js";
 import type { SlackRequestBudget } from "./request-budget.js";
 import type { PublicSlackClient } from "./slack-public.js";
@@ -53,7 +53,7 @@ async function readState(options: ReadOptions): Promise<State> {
   if (!options.token) return {
     v: 1, kind: "read-with-threads", binding: options.binding, history_done: false, pending: [], emitted: 0, failed: 0, failure_sample: [],
   };
-  const invalid = (code: string, message: string) => new AxiError({ code, message, exitCode: 2, suggestedCommand: options.restart });
+  const invalid = (code: string, message: string) => new SlkyError({ code, message, exitCode: 2, suggestedCommand: options.restart });
   let value: z.infer<typeof signedContinuation>;
   try {
     if (options.token.length > 32_768) throw new Error("Cursor exceeds size limit");
@@ -76,11 +76,11 @@ function compareTimestamps(left: string, right: string): number {
 function sortedInWindow(page: ProviderPage, previous: string | undefined, limit: number, options: ReadOptions, direction: 1 | -1) {
   if (page.items.length > limit || (!page.complete && !page.next)
     || (page.next && (page.next === previous || !backendCursor.safeParse(page.next).success))) {
-    throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a page that exceeds the requested limit or cannot advance its cursor." });
+    throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a page that exceeds the requested limit or cannot advance its cursor." });
   }
   const messages = page.items.map((raw) => {
     const ts = timestamp.safeParse(raw.ts);
-    if (!ts.success) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message with an invalid timestamp." });
+    if (!ts.success) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message with an invalid timestamp." });
     return { raw, ts: ts.data };
   });
   return messages
@@ -123,7 +123,7 @@ export async function readWithThreads(options: ReadOptions) {
         }
       } catch (error) {
         row.status = "failed";
-        row.code = error instanceof AxiError ? error.code : "SLACK_API_ERROR";
+        row.code = error instanceof SlkyError ? error.code : "SLACK_API_ERROR";
         state.failed += 1;
         if (state.failure_sample.length < 5) state.failure_sample.push({ root: pending.root, code: row.code });
         state.pending.shift();
@@ -157,7 +157,7 @@ export async function readWithThreads(options: ReadOptions) {
       state.history_done = result.complete && !result.next;
     } catch (error) {
       if (!shown && !state.emitted) throw error;
-      historyFailure = error instanceof AxiError ? error.code : "SLACK_API_ERROR";
+      historyFailure = error instanceof SlkyError ? error.code : "SLACK_API_ERROR";
       break;
     }
   }

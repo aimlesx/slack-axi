@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ActionStore } from "../src/actions.js";
-import { SlackAxiApp } from "../src/app.js";
+import { SlkyApp } from "../src/app.js";
 import type { AuthService } from "../src/auth.js";
 import type { CacheSnapshot, CacheStore } from "../src/cache.js";
 import { createProgram } from "../src/cli.js";
@@ -26,10 +26,10 @@ function page(messages: Record<string, unknown>[], next = "") {
   return Response.json({ ok: true, messages, has_more: Boolean(next), response_metadata: { next_cursor: next } });
 }
 
-async function run(app: SlackAxiApp, args: string[]) {
+async function run(app: SlkyApp, args: string[]) {
   const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   try {
-    await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", ...args]);
+    await createProgram(app).parseAsync(["node", "slky", "--output", "json", ...args]);
     return JSON.parse(String(write.mock.calls[0]?.[0]));
   } finally {
     write.mockRestore();
@@ -63,7 +63,7 @@ describe("expanded conversation reads", () => {
     const context = {
       profile, conversations: [], userMap: new Map(), snapshot: { credential_generation: "generation" }, public: publicClient,
     };
-    const app = { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions: new MemoryCursorIntegrity(), async context() { return context; } } as unknown as SlkyApp;
     const first = await run(app, [...windowArgs, "--max-requests", "3", "--limit", "5", "--fields", "ref,author_origin,rich_content"]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(first).toMatchObject({
@@ -118,7 +118,7 @@ describe("expanded conversation reads", () => {
           public: new PublicSlackClient("xoxp-fixture", { fetch: fetchMock }),
         };
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     const first = await run(app, [...windowArgs, "--limit", "1"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(first).toMatchObject({ data: { count: 1, expansion: { pending_threads: 1 } }, page: { shown: 1, complete: false } });
@@ -146,7 +146,7 @@ describe("expanded conversation reads", () => {
       save,
       async load() { return undefined; },
     } as unknown as CacheStore;
-    const app = new SlackAxiApp({ auth, cache, actions: new MemoryCursorIntegrity() as unknown as ActionStore });
+    const app = new SlkyApp({ auth, cache, actions: new MemoryCursorIntegrity() as unknown as ActionStore });
     const first = await run(app, ["read", "#incident", ...windowArgs.slice(2), "--max-requests", "1"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(first).toMatchObject({ data: { count: 0, expansion: { requests_used: 1, history_complete: false } }, page: { next_cursor: expect.any(String) } });
@@ -166,7 +166,7 @@ describe("expanded conversation reads", () => {
           public: new PublicSlackClient("xoxp-fixture", { fetch: fetchMock }),
         };
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
     await expect(run(app, [...windowArgs, "--max-requests", "1"])).rejects.toMatchObject({ code: "SLACK_HTTP_ERROR" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockClear();

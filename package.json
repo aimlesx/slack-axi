@@ -1,26 +1,26 @@
 {
-  "name": "slack-axi-cli",
-  "version": "0.1.0",
+  "name": "slky",
+  "version": "0.2.0",
   "description": "Agent-ergonomic Slack CLI with bounded output and safe mutations",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aimlesx/slack-axi.git"
+    "url": "git+https://github.com/aimlesx/slky.git"
   },
-  "homepage": "https://github.com/aimlesx/slack-axi#readme",
+  "homepage": "https://github.com/aimlesx/slky#readme",
   "bugs": {
-    "url": "https://github.com/aimlesx/slack-axi/issues"
+    "url": "https://github.com/aimlesx/slky/issues"
   },
   "type": "module",
   "bin": {
-    "slack-axi": "dist/index.js"
+    "slky": "dist/index.js"
   },
-  "man": "docs/slack-axi.1",
+  "man": "docs/slky.1",
   "files": [
     "dist/**/*.js",
-    "completions/_slack-axi",
-    "completions/slack-axi.bash",
-    "docs/slack-axi.1",
-    "skills/slack-axi/SKILL.md",
+    "completions/_slky",
+    "completions/slky.bash",
+    "docs/slky.1",
+    "skills/slky/SKILL.md",
     "slack-app-manifest.json",
     "npm-shrinkwrap.json",
     "README.md",

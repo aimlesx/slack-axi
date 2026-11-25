@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ActionStore } from "../src/actions.js";
-import { SlackAxiApp } from "../src/app.js";
+import { SlkyApp } from "../src/app.js";
 import { AuthService } from "../src/auth.js";
 import { cacheIdentity, CacheStore, type CacheSnapshot } from "../src/cache.js";
 import { ConfigStore } from "../src/config.js";
@@ -65,13 +65,13 @@ function identityClient(actorId: string, postMessage: ReturnType<typeof vi.fn>):
 }
 
 async function harness(secrets: MemorySecrets, oldClient: PublicSlackClient, newClient = identityClient("U2", vi.fn())): Promise<{
-  app: SlackAxiApp;
+  app: SlkyApp;
   auth: AuthService;
   actions: ActionStore;
   config: ConfigStore;
   action: Awaited<ReturnType<ActionStore["create"]>>;
 }> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-credential-lease-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "slky-credential-lease-"));
   const config = new ConfigStore(path.join(root, "config.json"));
   const active = profile();
   await config.save({ version: 1, default_workspace: active.alias, profiles: [active] });
@@ -95,7 +95,7 @@ async function harness(secrets: MemorySecrets, oldClient: PublicSlackClient, new
     cache,
     actions,
   );
-  const app = new SlackAxiApp({ config, auth, cache, actions, secrets });
+  const app = new SlkyApp({ config, auth, cache, actions, secrets });
   return { app, auth, actions, config, action };
 }
 

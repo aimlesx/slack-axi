@@ -7,7 +7,7 @@ import { ActionStore, sha256File } from "../src/actions.js";
 import { applyAction } from "../src/mutations.js";
 import { DEFAULT_DOWNLOAD_MAX_BYTES, PublicSlackClient } from "../src/slack-public.js";
 import { createProgram } from "../src/cli.js";
-import type { SlackAxiApp, WorkspaceContext } from "../src/app.js";
+import type { SlkyApp, WorkspaceContext } from "../src/app.js";
 import type { VerifiedUploadSnapshot } from "../src/types.js";
 import { MemorySecrets } from "./helpers.js";
 
@@ -45,7 +45,7 @@ async function withTestSnapshot<T>(filename: string, operation: (snapshot: Verif
 
 describe("file exactness and transport", () => {
   it("streams the exact snapshot through Slack's three-step external upload without forwarding credentials", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-stream-upload-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-stream-upload-"));
     const snapshot = path.join(root, "snapshot.bin");
     // Keep this fixture large enough to cross the stream high-water mark while
     // remaining fast on both native Intel and Apple Silicon CI runners.
@@ -94,7 +94,7 @@ describe("file exactness and transport", () => {
   }, 30_000);
 
   it("never completes or retries an external upload whose byte transfer fails", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-stream-upload-failure-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-stream-upload-failure-"));
     const snapshot = path.join(root, "snapshot.bin");
     await writeFile(snapshot, "once");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -115,7 +115,7 @@ describe("file exactness and transport", () => {
   });
 
   it("rejects a non-Slack signed upload URL before any bytes or credentials leave the process", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-stream-upload-host-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-stream-upload-host-"));
     const snapshot = path.join(root, "snapshot.bin");
     await writeFile(snapshot, "private");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -132,7 +132,7 @@ describe("file exactness and transport", () => {
   });
 
   it("keeps a completion rejection uncertain after Slack accepted the file bytes", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-stream-completion-failure-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-stream-completion-failure-"));
     const snapshot = path.join(root, "snapshot.bin");
     await writeFile(snapshot, "once");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -159,7 +159,7 @@ describe("file exactness and transport", () => {
   });
 
   it("never completes bytes whose transfer digest differs from the signed snapshot", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-stream-digest-mismatch-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-stream-digest-mismatch-"));
     const filename = path.join(root, "snapshot.bin");
     await writeFile(filename, "approved bytes");
     let completionCalls = 0;
@@ -191,7 +191,7 @@ describe("file exactness and transport", () => {
   });
 
   it("uploads the immutable staged snapshot after the original path is replaced", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-files-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-files-"));
     const source = path.join(root, "source.bin");
     await writeFile(source, Buffer.from("signed original bytes"));
     const actions = new ActionStore(path.join(root, "actions"), new MemorySecrets());
@@ -210,7 +210,7 @@ describe("file exactness and transport", () => {
       },
     };
     const context = { profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token" }, public: publicClient, snapshot: {}, conversations: [], users: [], userMap: new Map() } as unknown as WorkspaceContext;
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
     const result = await applyAction(app, plan, plan.approval);
     expect(result.state).toBe("applied");
     expect(uploaded.toString()).toBe("signed original bytes");
@@ -219,7 +219,7 @@ describe("file exactness and transport", () => {
   });
 
   it("keeps the approved inode bound through a same-size path replacement at transport entry", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-upload-entry-race-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-upload-entry-race-"));
     const source = path.join(root, "source.bin");
     const approved = Buffer.from("APPROVED");
     const replacement = Buffer.from("REJECTED");
@@ -258,7 +258,7 @@ describe("file exactness and transport", () => {
       },
     };
     const context = { profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token" }, public: publicClient, snapshot: {}, conversations: [], users: [], userMap: new Map() } as unknown as WorkspaceContext;
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
 
     const result = await applyAction(app, plan, plan.approval);
     expect(result.state).toBe("applied");
@@ -269,7 +269,7 @@ describe("file exactness and transport", () => {
   });
 
   it("never completes an upload whose open inode changes during the raw transfer", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-upload-inplace-race-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-upload-inplace-race-"));
     const source = path.join(root, "source.bin");
     const approved = Buffer.alloc(2 * 1024 * 1024, 0x41);
     const replacement = Buffer.alloc(approved.length, 0x42);
@@ -303,7 +303,7 @@ describe("file exactness and transport", () => {
     }) as unknown as typeof fetch;
     const transport = new PublicSlackClient("xoxp-secret", { apiUrl: "https://slack.com/api/", fetch: fetchMock });
     const context = { profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token" }, public: { async authTest() { return { team_id: "T1", user_id: "U1" }; }, uploadFile: transport.uploadFile.bind(transport) }, snapshot: {}, conversations: [], users: [], userMap: new Map() } as unknown as WorkspaceContext;
-    const app = { actions, async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { actions, async context() { return context; } } as unknown as SlkyApp;
 
     await expect(applyAction(app, plan, plan.approval)).rejects.toMatchObject({ code: "ACTION_COMMIT_UNKNOWN" });
     expect(rawCalls).toBe(1);
@@ -312,7 +312,7 @@ describe("file exactness and transport", () => {
   });
 
   it("derives the signed upload preview from the exact snapshot after a preflight path replacement", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-preview-race-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-preview-race-"));
     const source = path.join(root, "source.bin");
     const original = Buffer.from("short preflight bytes");
     const replacement = Buffer.from("different replacement bytes selected at the staging boundary");
@@ -339,12 +339,12 @@ describe("file exactness and transport", () => {
         await contextGate;
         return context;
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
     let output = "";
     const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => { output += String(chunk); return true; });
     try {
-      const command = createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "file", "upload", source, "--to", "C1"]);
+      const command = createProgram(app).parseAsync(["node", "slky", "--output", "json", "file", "upload", source, "--to", "C1"]);
       await entered;
       await rename(source, `${source}.preflight`);
       await writeFile(source, replacement);
@@ -371,7 +371,7 @@ describe("file exactness and transport", () => {
   });
 
   it("rejects an upload source that exceeds the action-store byte bound without publishing partial staging", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-upload-bound-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-upload-bound-"));
     const source = path.join(root, "source.bin");
     const actionsDirectory = path.join(root, "actions");
     await writeFile(source, "five!");
@@ -398,7 +398,7 @@ describe("file exactness and transport", () => {
   });
 
   it("rechecks the upload bound after CLI preflight when the source path grows before snapshotting", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-upload-preflight-growth-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-upload-preflight-growth-"));
     const source = path.join(root, "source.bin");
     await writeFile(source, "tiny");
 
@@ -423,10 +423,10 @@ describe("file exactness and transport", () => {
         await contextGate;
         return context;
       },
-    } as unknown as SlackAxiApp;
+    } as unknown as SlkyApp;
 
     const command = createProgram(app).parseAsync([
-      "node", "slack-axi", "--output", "json", "file", "upload", source, "--to", "C1", "--max-bytes", "4",
+      "node", "slky", "--output", "json", "file", "upload", source, "--to", "C1", "--max-bytes", "4",
     ]);
     try {
       await entered;
@@ -446,7 +446,7 @@ describe("file exactness and transport", () => {
   });
 
   it("rejects symlink upload sources and streams a large snapshot hash", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-files-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-files-"));
     const source = path.join(root, "large.bin");
     const alias = path.join(root, "alias.bin");
     await writeFile(source, Buffer.alloc(8 * 1024 * 1024, 0x5a));
@@ -468,7 +468,7 @@ describe("file exactness and transport", () => {
       expect(headers.get("cookie")).toBe("d=xoxd-download%2Fsession%3D");
       return new Response("abc", { status: 200, headers: { "content-length": "3" } });
     }) as unknown as typeof fetch;
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-cookie-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-cookie-"));
     const client = new PublicSlackClient("xoxc-secret", {
       fetch: fetchMock,
       cookie: "xoxd-download%2Fsession%3D",
@@ -489,7 +489,7 @@ describe("file exactness and transport", () => {
       expect(headers.get("cookie")).toBeNull();
       return new Response("abc", { status: 200, headers: { "content-length": "3" } });
     }) as unknown as typeof fetch;
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-cookie-scope-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-cookie-scope-"));
     const client = new PublicSlackClient("xoxc-secret", { fetch: fetchMock, cookie: "xoxd-download%2Fsession%3D" });
 
     await expect(client.download(
@@ -502,21 +502,21 @@ describe("file exactness and transport", () => {
   it("rejects redirects to non-Slack hosts before forwarding credentials", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://evil.example/download" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-"));
     await expect(new PublicSlackClient("xoxp-secret").download("https://files.slack.com/files-pri/T1-F1/file", path.join(root, "tmp"))).rejects.toMatchObject({ code: "SLACK_URL_INVALID" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a completed download whose size differs from Slack metadata", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("abc", { status: 200, headers: { "content-length": "3" } })));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-"));
     await expect(new PublicSlackClient("xoxp-secret").download("https://files.slack.com/files-pri/T1-F1/file", path.join(root, "tmp"), 4)).rejects.toMatchObject({ code: "FILE_SIZE_MISMATCH" });
   });
 
   it("aborts a chunked download as soon as it exceeds Slack's expected size", async () => {
     const oversized = Buffer.alloc(5 * 1024 * 1024, 0x61);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(oversized, { status: 200 })));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-stream-limit-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-stream-limit-"));
     const output = path.join(root, "tmp");
 
     await expect(new PublicSlackClient("xoxp-secret").download(
@@ -532,7 +532,7 @@ describe("file exactness and transport", () => {
   it("enforces an explicit byte ceiling when Slack omits file size metadata", async () => {
     const oversized = Buffer.alloc(5 * 1024 * 1024, 0x62);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(oversized, { status: 200 })));
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-default-limit-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-default-limit-"));
     const output = path.join(root, "tmp");
 
     await expect(new PublicSlackClient("xoxp-secret").download(
@@ -546,7 +546,7 @@ describe("file exactness and transport", () => {
   });
 
   it("preserves a destination created during the no-clobber race", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-"));
     const output = path.join(root, "report.txt");
     const publicClient = {
       async fileInfo() { return { id: "F1", size: 3, url_private_download: "https://files.slack.com/file" }; },
@@ -557,13 +557,13 @@ describe("file exactness and transport", () => {
       },
     };
     const context = { profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token" }, public: publicClient } as unknown as WorkspaceContext;
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
-    await expect(createProgram(app).parseAsync(["node", "slack-axi", "file", "get", "F1", "--out", output])).rejects.toMatchObject({ code: "FILE_EXISTS" });
+    const app = { async context() { return context; } } as unknown as SlkyApp;
+    await expect(createProgram(app).parseAsync(["node", "slky", "file", "get", "F1", "--out", output])).rejects.toMatchObject({ code: "FILE_EXISTS" });
     expect(await readFile(output, "utf8")).toBe("racer");
   });
 
   it("passes a mandatory default or explicit download byte bound from the CLI", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "slack-axi-download-cli-limit-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "slky-download-cli-limit-"));
     const download = vi.fn(async (_url: string, temporary: string, _expected: number | undefined, _maximum: number) => {
       await writeFile(temporary, "new");
       return { path: temporary, bytes: 3, redirects: 0 };
@@ -573,11 +573,11 @@ describe("file exactness and transport", () => {
       download,
     };
     const context = { profile: { team_id: "T1", alias: "work", actor_id: "U1", kind: "user_token" }, public: publicClient } as unknown as WorkspaceContext;
-    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const app = { async context() { return context; } } as unknown as SlkyApp;
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
-      await createProgram(app).parseAsync(["node", "slack-axi", "file", "get", "F1", "--out", path.join(root, "default.txt")]);
-      await createProgram(app).parseAsync(["node", "slack-axi", "file", "get", "F1", "--out", path.join(root, "explicit.txt"), "--max-bytes", "2048"]);
+      await createProgram(app).parseAsync(["node", "slky", "file", "get", "F1", "--out", path.join(root, "default.txt")]);
+      await createProgram(app).parseAsync(["node", "slky", "file", "get", "F1", "--out", path.join(root, "explicit.txt"), "--max-bytes", "2048"]);
     } finally {
       write.mockRestore();
     }

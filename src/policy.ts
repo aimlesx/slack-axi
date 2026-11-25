@@ -1,7 +1,8 @@
 import { z } from "zod";
 import path from "node:path";
+import { lstat } from "node:fs/promises";
 import { canonicalize } from "json-canonicalize";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { atomicWriteJson, readJson } from "./fs-store.js";
 import { preserveActionOutcome, withOwnedRelease } from "./lease-outcome.js";
 import { OwnedFileLock, type OwnedLockLease } from "./owned-lock.js";
@@ -60,7 +61,7 @@ export function broadcastMentions(text: string): string[] {
 export function validateBroadcastMentions(text: string, explicitlyAllowed: boolean): void {
   const mentions = broadcastMentions(text);
   if (mentions.length > 0 && !explicitlyAllowed) {
-    throw new AxiError({
+    throw new SlkyError({
       code: "BROADCAST_MENTION_REQUIRES_OPT_IN",
       message: "Broadcast mentions require the explicit --allow-broadcast safety flag.",
       exitCode: 2,
@@ -156,10 +157,23 @@ function inspectLinks(text: string): LinkInspection {
   return { hostnames, malformed, found };
 }
 
+const PROJECT_POLICY = ".slky-policy.json";
+const LEGACY_PROJECT_POLICY = ".slack-axi-policy.json";
+
+async function pathPresent(filename: string): Promise<boolean> {
+  try {
+    await lstat(filename);
+    return true;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw cause;
+  }
+}
+
 export class PolicyStore {
   private readonly lock: OwnedFileLock;
 
-  constructor(private readonly filename = appPaths().policy, private readonly projectFilename = path.resolve(".slack-axi-policy.json")) {
+  constructor(private readonly filename = appPaths().policy, private readonly projectFilename = path.resolve(PROJECT_POLICY)) {
     this.lock = new OwnedFileLock(`${filename}.lock`);
   }
 
@@ -167,11 +181,11 @@ export class PolicyStore {
     try {
       return await this.lock.acquire();
     } catch (cause) {
-      if (cause instanceof AxiError && cause.code.startsWith("CONFIG_")) {
-        throw new AxiError({
+      if (cause instanceof SlkyError && cause.code.startsWith("CONFIG_")) {
+        throw new SlkyError({
           code: cause.code === "CONFIG_BUSY" ? "POLICY_BUSY" : "POLICY_LOCK_INVALID",
           message: cause.code === "CONFIG_BUSY"
-            ? "Another Slack AXI process is updating or using direct-apply policy."
+            ? "Another slky process is updating or using direct-apply policy."
             : "The direct-apply policy lock is invalid; refusing an unsafe authorization.",
           retryable: cause.retryable,
           cause,
@@ -190,11 +204,40 @@ export class PolicyStore {
     return `${filename}.commit.json`;
   }
 
-  private commitUnknown(scope: "global" | "project", cause?: unknown): AxiError {
-    return new AxiError({
+  private async resolveProjectFilename(): Promise<string> {
+    const basename = path.basename(this.projectFilename);
+    if (basename !== PROJECT_POLICY && basename !== LEGACY_PROJECT_POLICY) return this.projectFilename;
+
+    const directory = path.dirname(this.projectFilename);
+    const current = path.join(directory, PROJECT_POLICY);
+    const legacy = path.join(directory, LEGACY_PROJECT_POLICY);
+    // A commit record can be the only evidence of an uncertain replacement.
+    const [currentFile, currentCommit, legacyFile, legacyCommit] = await Promise.all(
+      [current, this.commitFilename(current), legacy, this.commitFilename(legacy)].map(pathPresent),
+    );
+    const hasCurrent = currentFile || currentCommit;
+    const hasLegacy = legacyFile || legacyCommit;
+    const legacyLayout = path.basename(path.dirname(this.filename)) === "slack-axi";
+    if (hasCurrent && (hasLegacy || legacyLayout)) {
+      throw new SlkyError({
+        code: "PROJECT_POLICY_CONFLICT",
+        message: [
+          hasLegacy
+            ? "Found project policy files or commit records under both names."
+            : "The legacy client cannot read .slky-policy.json in this shared layout.",
+          `Stop both clients, back up the policy files and commit records, and consolidate the intended policy and its matching .commit.json sidecar under ${legacyLayout ? LEGACY_PROJECT_POLICY : PROJECT_POLICY}.`,
+        ].join(" "),
+        details: { current_policy: current, legacy_policy: legacy },
+      });
+    }
+    return hasLegacy || legacyLayout ? legacy : current;
+  }
+
+  private commitUnknown(scope: "global" | "project", cause?: unknown): SlkyError {
+    return new SlkyError({
       code: "POLICY_COMMIT_UNKNOWN",
       message: "The policy replacement could not be verified; direct authorization is blocked until an explicit policy apply repairs it.",
-      suggestedCommand: `slack-axi policy apply <file>${scope === "project" ? " --project" : ""}`,
+      suggestedCommand: `slky policy apply <file>${scope === "project" ? " --project" : ""}`,
       details: { policy_scope: scope, direct_authorization_blocked: true },
       cause,
     });
@@ -227,7 +270,7 @@ export class PolicyStore {
     if (rawRecord === undefined) {
       if (raw === undefined) return undefined;
       const parsed = schema.safeParse(raw);
-      if (!parsed.success) throw new AxiError({ code: "POLICY_INVALID", message: "Slack AXI policy is invalid.", details: { issues: parsed.error.issues } });
+      if (!parsed.success) throw new SlkyError({ code: "POLICY_INVALID", message: "The slky policy is invalid.", details: { issues: parsed.error.issues } });
       return parsed.data;
     }
 
@@ -283,7 +326,7 @@ export class PolicyStore {
 
   private async loadEffective(): Promise<{ global: Policy; local?: Policy }> {
     const global = await this.load();
-    const local = await this.readGuarded(this.projectFilename, "project");
+    const local = await this.readGuarded(await this.resolveProjectFilename(), "project");
     return local === undefined ? { global } : { global, local };
   }
 
@@ -310,14 +353,14 @@ export class PolicyStore {
     const lease = await this.acquireLease();
     return withOwnedRelease(async () => {
       const existing = await readJson<unknown | undefined>(this.filename, undefined);
-      if (existing !== undefined) throw new AxiError({ code: "POLICY_EXISTS", message: "A Slack AXI policy already exists.", suggestedCommand: "slack-axi policy show" });
+      if (existing !== undefined) throw new SlkyError({ code: "POLICY_EXISTS", message: "A slky policy already exists.", suggestedCommand: "slky policy show" });
       return this.replaceLocked(defaultPolicy, this.filename, "global", existing);
     }, () => lease.release(), (value) => value);
   }
 
   validate(value: unknown): Policy {
     const parsed = schema.safeParse(value);
-    if (!parsed.success) throw new AxiError({ code: "POLICY_INVALID", message: "Slack AXI policy is invalid.", exitCode: 2, details: { issues: parsed.error.issues } });
+    if (!parsed.success) throw new SlkyError({ code: "POLICY_INVALID", message: "The slky policy is invalid.", exitCode: 2, details: { issues: parsed.error.issues } });
     return parsed.data;
   }
 
@@ -326,7 +369,7 @@ export class PolicyStore {
     const parsed = this.validate(value);
     const lease = await this.acquireLease();
     return withOwnedRelease(async () => {
-      const filename = scope === "global" ? this.filename : this.projectFilename;
+      const filename = scope === "global" ? this.filename : await this.resolveProjectFilename();
       const previous = await readJson<unknown | undefined>(filename, undefined);
       return this.replaceLocked(parsed, filename, scope, previous);
     }, () => lease.release(), (value) => value);
@@ -352,14 +395,14 @@ export class PolicyStore {
     return withOwnedRelease(async () => {
       const authorization = await this.authorization(input.operation, input.conversationId, input.requiresBroadcast);
       if (!authorization.direct) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "POLICY_DENIED",
           message: "Direct apply is not allowed for this operation and conversation.",
           ...(input.suggestedCommand ? { suggestedCommand: input.suggestedCommand } : {}),
         });
       }
       if (!authorization.broadcast) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "BROADCAST_POLICY_DENIED",
           message: "Direct apply of broadcast mentions requires a separate policy grant for this operation and conversation.",
           ...(input.suggestedCommand ? { suggestedCommand: input.suggestedCommand } : {}),
@@ -384,9 +427,8 @@ export class PolicyStore {
 
   async validateUnfurls(text: string, enabled: boolean): Promise<void> {
     if (!enabled) return;
-    const global = await this.load();
+    const { global, local } = await this.loadEffective();
     let domains = new Set(global.allowed_unfurl_domains.map((domain) => domain.toLowerCase()));
-    const local = await this.readGuarded(this.projectFilename, "project");
     if (local !== undefined) {
       const narrowed = local;
       const localDomains = new Set(narrowed.allowed_unfurl_domains.map((domain) => domain.toLowerCase()));
@@ -395,7 +437,7 @@ export class PolicyStore {
     const links = inspectLinks(text);
     const denied = links.hostnames.filter((hostname) => ![...domains].some((domain) => hostname === domain || hostname.endsWith(`.${domain}`)));
     if (denied.length > 0 || links.malformed > 0) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "UNFURL_POLICY_DENIED",
         message: "Message unfurls require every URL-like construct to be valid and allowlisted by policy.",
         details: { denied_domains: [...new Set(denied)], malformed_links: links.malformed, links_found: links.found },
@@ -406,7 +448,7 @@ export class PolicyStore {
   async validateUploadComment(text: string): Promise<void> {
     const links = inspectLinks(text);
     if (links.found > 0 || links.malformed > 0) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "UNFURL_POLICY_DENIED",
         message: "File-upload comments cannot contain URL-like constructs because Slack's upload API cannot explicitly disable unfurls.",
         details: { detected_domains: [...new Set(links.hostnames)], malformed_links: links.malformed, links_found: links.found },

@@ -6,7 +6,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { canonicalize } from "json-canonicalize";
 import { z } from "zod";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { atomicWriteJson, ensurePrivateDir, immutableWriteJson, removeIfExists } from "./fs-store.js";
 import { ACTION_SIGNING_ACCOUNT, NativeKeychain, type SecretStore } from "./keychain.js";
 import { preserveActionOutcome, withOwnedRelease } from "./lease-outcome.js";
@@ -16,6 +16,7 @@ import {
   defaultProcessAlive,
   defaultProcessIdentity,
   processOwnerIsLive,
+  validProcessFenceSocket,
   type ProcessIdentityReader,
   type ProcessLivenessProbe,
 } from "./process-identity.js";
@@ -69,7 +70,7 @@ const lockOwnerSchema = z.object({
   claimed_at: z.string().datetime(),
   process_started_at_ms: z.number().int().positive().optional(),
   process_instance_id: z.string().regex(/^[A-Za-z0-9_-]{16,}$/).optional(),
-  process_fence_socket: z.string().regex(/^\/(?:private\/)?tmp\/slack-axi-cli-lock-\d+-[a-f0-9]{32}\.sock$/).optional(),
+  process_fence_socket: z.string().refine(validProcessFenceSocket).optional(),
 }).strict();
 
 type PlanData = z.infer<typeof planDataSchema>;
@@ -113,6 +114,7 @@ function hmac(key: Buffer, value: unknown): string {
 }
 
 function cursorHmac(key: Buffer, value: unknown): string {
+  // Previously issued v1 cursors use this protocol identifier.
   return createHmac("sha256", key)
     .update("slack-axi/cursor/v1\0")
     .update(canonicalize(value))
@@ -288,7 +290,7 @@ export class ActionStore {
   }
 
   private actionDirectory(id: string): string {
-    if (!ACTION_ID_PATTERN.test(id)) throw new AxiError({ code: "ACTION_ID_INVALID", message: "Action ID must be a UUID.", exitCode: 2 });
+    if (!ACTION_ID_PATTERN.test(id)) throw new SlkyError({ code: "ACTION_ID_INVALID", message: "Action ID must be a UUID.", exitCode: 2 });
     return path.join(this.directory, id);
   }
 
@@ -339,10 +341,10 @@ export class ActionStore {
       return key;
     } catch (cause) {
       if (!create || await this.actionDirectoriesExist()) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "ACTION_SIGNING_KEY_MISSING",
           message: "The action signing key is missing or invalid while staged actions exist; verification is unavailable.",
-          suggestedCommand: "slack-axi action delete <id> --force-unverified",
+          suggestedCommand: "slky action delete <id> --force-unverified",
           cause,
         });
       }
@@ -357,7 +359,7 @@ export class ActionStore {
         // The lock serializes the only safe key-generation path.
       }
       if (await this.actionDirectoriesExist()) {
-        throw new AxiError({ code: "ACTION_SIGNING_KEY_MISSING", message: "Refusing to replace a missing signing key while actions exist." });
+        throw new SlkyError({ code: "ACTION_SIGNING_KEY_MISSING", message: "Refusing to replace a missing signing key while actions exist." });
       }
       const key = randomBytes(32);
       await this.secrets.set(ACTION_SIGNING_ACCOUNT, key.toString("base64url"));
@@ -387,20 +389,20 @@ export class ActionStore {
    */
   async withVerifiedUploadSnapshot<T>(action: ActionPlan, operation: (snapshot: VerifiedUploadSnapshot) => Promise<T>): Promise<T> {
     if (action.operation !== "file.upload" || !action.payload) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload action payload is unavailable." });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload action payload is unavailable." });
     }
     const expectedHash = action.payload.snapshot_hash;
     const expectedSize = action.payload.snapshot_size;
     if (typeof expectedHash !== "string" || !/^[a-f0-9]{64}$/.test(expectedHash)
       || typeof expectedSize !== "number" || !Number.isSafeInteger(expectedSize) || expectedSize < 0) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload snapshot metadata is invalid." });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload snapshot metadata is invalid." });
     }
 
     let handle: Awaited<ReturnType<typeof open>>;
     try {
       handle = await open(this.files(action.id).upload, constants.O_RDONLY | constants.O_NOFOLLOW);
     } catch (cause) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot could not be opened safely.`, cause });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot could not be opened safely.`, cause });
     }
 
     try {
@@ -408,17 +410,17 @@ export class ActionStore {
       try {
         initial = await handle.stat();
         if (!initial.isFile() || initial.size !== expectedSize) {
-          throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.` });
+          throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.` });
         }
         const verified = await sha256Handle(handle);
         const afterHash = await handle.stat();
         if (verified.hash !== expectedHash || verified.size !== expectedSize || !sameSnapshotVersion(initial, afterHash)) {
-          throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.` });
+          throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.` });
         }
         initial = afterHash;
       } catch (cause) {
-        if (cause instanceof AxiError) throw cause;
-        throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.`, cause });
+        if (cause instanceof SlkyError) throw cause;
+        throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot failed verification.`, cause });
       }
 
       let streamClaimed = false;
@@ -426,17 +428,17 @@ export class ActionStore {
         size: expectedSize,
         expected_sha256: expectedHash,
         createReadStream: () => {
-          if (streamClaimed) throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload snapshot stream was already consumed." });
+          if (streamClaimed) throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "The verified upload snapshot stream was already consumed." });
           streamClaimed = true;
           return handle.createReadStream({ autoClose: false, start: 0 });
         },
         assertUnchanged: async () => {
           let current: SnapshotMetadata;
           try { current = await handle.stat(); } catch (cause) {
-            throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot is no longer readable.`, cause });
+            throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot is no longer readable.`, cause });
           }
           if (!current.isFile() || !sameSnapshotVersion(initial, current)) {
-            throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot changed before completion.` });
+            throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${action.id}' upload snapshot changed before completion.` });
           }
         },
       });
@@ -451,14 +453,14 @@ export class ActionStore {
 
   private async snapshotUpload(source: string, destination: string, maxBytes: number): Promise<{ hash: string; size: number }> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > MAX_UPLOAD_MAX_BYTES) {
-      throw new AxiError({ code: "FILE_UPLOAD_LIMIT_INVALID", message: `The upload byte limit must be between 1 and ${MAX_UPLOAD_MAX_BYTES}.`, exitCode: 2 });
+      throw new SlkyError({ code: "FILE_UPLOAD_LIMIT_INVALID", message: `The upload byte limit must be between 1 and ${MAX_UPLOAD_MAX_BYTES}.`, exitCode: 2 });
     }
     const sourceHandle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const metadata = await sourceHandle.stat();
-      if (!metadata.isFile()) throw new AxiError({ code: "FILE_INVALID", message: `'${source}' is not a regular file.`, exitCode: 2 });
+      if (!metadata.isFile()) throw new SlkyError({ code: "FILE_INVALID", message: `'${source}' is not a regular file.`, exitCode: 2 });
       if (metadata.size > maxBytes) {
-        throw new AxiError({ code: "FILE_UPLOAD_LIMIT_EXCEEDED", message: "The upload source exceeds the configured byte limit.", exitCode: 2, details: { bytes: metadata.size, maximum_bytes: maxBytes } });
+        throw new SlkyError({ code: "FILE_UPLOAD_LIMIT_EXCEEDED", message: "The upload source exceeds the configured byte limit.", exitCode: 2, details: { bytes: metadata.size, maximum_bytes: maxBytes } });
       }
       const digest = createHash("sha256");
       let size = 0;
@@ -467,7 +469,7 @@ export class ActionStore {
           digest.update(chunk as Buffer);
           size += (chunk as Buffer).byteLength;
           if (!Number.isSafeInteger(size) || size > maxBytes) {
-            callback(new AxiError({ code: "FILE_UPLOAD_LIMIT_EXCEEDED", message: "The upload source grew beyond the configured byte limit while it was staged.", exitCode: 2, details: { bytes_read_at_least: size, maximum_bytes: maxBytes } }));
+            callback(new SlkyError({ code: "FILE_UPLOAD_LIMIT_EXCEEDED", message: "The upload source grew beyond the configured byte limit while it was staged.", exitCode: 2, details: { bytes_read_at_least: size, maximum_bytes: maxBytes } }));
             return;
           }
           callback(null, chunk);
@@ -477,7 +479,7 @@ export class ActionStore {
       const snapshotHandle = await open(destination, "r");
       try {
         const snapshotMetadata = await snapshotHandle.stat();
-        if (snapshotMetadata.size !== size) throw new AxiError({ code: "FILE_INVALID", message: "The private upload snapshot size changed while it was being staged." });
+        if (snapshotMetadata.size !== size) throw new SlkyError({ code: "FILE_INVALID", message: "The private upload snapshot size changed while it was being staged." });
         await snapshotHandle.sync();
       } finally {
         await snapshotHandle.close();
@@ -594,13 +596,13 @@ export class ActionStore {
       if (!parsed.success) throw new Error("not an object");
       return parsed.data;
     } catch (cause) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `The action ${label} is missing or invalid.`, cause });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `The action ${label} is missing or invalid.`, cause });
     }
   }
 
   private async loadVerified(id: string, options: { skipUploadSnapshotVerification?: boolean; contentRaceRetried?: boolean } = {}): Promise<ActionPlan> {
     const files = this.files(id);
-    try { await stat(files.plan); } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new AxiError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` }); throw cause; }
+    try { await stat(files.plan); } catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new SlkyError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` }); throw cause; }
     const key = await this.readSigningKey(false);
     let rawPlan: unknown;
     let rawState: unknown;
@@ -610,18 +612,18 @@ export class ActionStore {
         readFile(files.state, "utf8").then(JSON.parse),
       ]);
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new AxiError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` });
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' cannot be decoded.`, cause });
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new SlkyError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' cannot be decoded.`, cause });
     }
     const parsedPlan = signedPlanSchema.safeParse(rawPlan);
     const parsedState = signedStateSchema.safeParse(rawState);
     if (!parsedPlan.success || !parsedState.success) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' has an invalid signed record.` });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' has an invalid signed record.` });
     }
     const plan = parsedPlan.data.data;
     const state = parsedState.data.data;
     if (plan.id !== id || state.action_id !== id || !signatureMatches(hmac(key, plan), parsedPlan.data.signature) || !signatureMatches(hmac(key, state), parsedState.data.signature)) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' failed signature verification.` });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' failed signature verification.` });
     }
     let preview: Record<string, unknown> | undefined;
     let payload: Record<string, unknown> | undefined;
@@ -635,7 +637,7 @@ export class ActionStore {
         // old state immediately before the winner removes preview/payload.
         // Re-read once and accept only a newer, valid, content-discarded
         // state; unchanged state still fails closed as integrity damage.
-        if (!options.contentRaceRetried && cause instanceof AxiError && cause.code === "ACTION_INTEGRITY_FAILED") {
+        if (!options.contentRaceRetried && cause instanceof SlkyError && cause.code === "ACTION_INTEGRITY_FAILED") {
           let latestRaw: unknown;
           try { latestRaw = JSON.parse(await readFile(files.state, "utf8")); } catch { throw cause; }
           const latest = signedStateSchema.safeParse(latestRaw);
@@ -650,7 +652,7 @@ export class ActionStore {
         throw cause;
       }
       if (sha256(preview) !== plan.preview_hash || sha256(payload) !== plan.payload_hash) {
-        throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' content hashes do not match its signed plan.` });
+        throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' content hashes do not match its signed plan.` });
       }
       if (plan.operation === "file.upload" && !options.skipUploadSnapshotVerification) {
         const expectedHash = typeof payload.snapshot_hash === "string" ? payload.snapshot_hash : "";
@@ -664,7 +666,7 @@ export class ActionStore {
           // The shared integrity error below avoids leaking filesystem details.
         }
         if (!expectedHash || snapshotHash !== expectedHash || snapshotSize !== expectedSize) {
-          throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' upload snapshot failed verification.` });
+          throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: `Action '${id}' upload snapshot failed verification.` });
         }
       }
     } else {
@@ -693,7 +695,7 @@ export class ActionStore {
       rawPlan = JSON.parse(await readFile(files.plan, "utf8")) as unknown;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "An action plan cannot be decoded while workspace data is being removed.", cause });
+        throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "An action plan cannot be decoded while workspace data is being removed.", cause });
       }
     }
     if (rawPlan !== undefined) {
@@ -701,7 +703,7 @@ export class ActionStore {
       if (!parsed.success
         || (expectedActionId !== undefined && parsed.data.data.id !== expectedActionId)
         || !signatureMatches(hmac(key, parsed.data.data), parsed.data.signature)) {
-        throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "An action plan failed verification while workspace data is being removed." });
+        throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "An action plan failed verification while workspace data is being removed." });
       }
       return parsed.data.data.workspace_id;
     }
@@ -710,13 +712,13 @@ export class ActionStore {
     try {
       rawWorkspace = JSON.parse(await readFile(files.workspace, "utf8")) as unknown;
     } catch (cause) {
-      throw new AxiError({ code: "ACTION_WORKSPACE_UNCLASSIFIED", message: "An incomplete action directory cannot be assigned safely to a Slack workspace.", cause });
+      throw new SlkyError({ code: "ACTION_WORKSPACE_UNCLASSIFIED", message: "An incomplete action directory cannot be assigned safely to a Slack workspace.", cause });
     }
     const parsed = signedStagingWorkspaceSchema.safeParse(rawWorkspace);
     if (!parsed.success
       || (expectedActionId !== undefined && parsed.data.data.action_id !== expectedActionId)
       || !signatureMatches(hmac(key, parsed.data.data), parsed.data.signature)) {
-      throw new AxiError({ code: "ACTION_WORKSPACE_UNCLASSIFIED", message: "An incomplete action directory has an invalid workspace marker." });
+      throw new SlkyError({ code: "ACTION_WORKSPACE_UNCLASSIFIED", message: "An incomplete action directory has an invalid workspace marker." });
     }
     return parsed.data.data.workspace_id;
   }
@@ -746,7 +748,7 @@ export class ActionStore {
         ? await processOwnerIsLive(elected.owner, this.isProcessAlive, this.processIdentity)
         : elected.pid !== undefined && this.isProcessAlive(elected.pid);
       if (elected.pid !== undefined && electedIsLive) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "ACTION_BUSY",
           message: `${label} stale-lock recovery is owned by another live process.`,
           retryable: true,
@@ -754,7 +756,7 @@ export class ActionStore {
         });
       }
       if (elected.pid === undefined && elected.ageMs < INCOMPLETE_LOCK_GRACE_MS) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "ACTION_BUSY",
           message: `${label} has an incomplete stale-lock election; retry shortly.`,
           retryable: true,
@@ -762,14 +764,14 @@ export class ActionStore {
         });
       }
       if (!elected.identity) {
-        throw new AxiError({ code: "ACTION_BUSY", message: `${label} stale-lock election cannot be verified.`, retryable: true });
+        throw new SlkyError({ code: "ACTION_BUSY", message: `${label} stale-lock election cannot be verified.`, retryable: true });
       }
       // Markers are immutable and never removed or reused. If an elected
       // reclaimer dies, all contenders derive the same child generation and
       // exactly one can publish the next marker.
       generation = `recovery:${markerName}:${elected.identity}`;
     }
-    throw new AxiError({ code: "ACTION_BUSY", message: `${label} stale-lock recovery exceeded its bounded election chain.`, retryable: true });
+    throw new SlkyError({ code: "ACTION_BUSY", message: `${label} stale-lock recovery exceeded its bounded election chain.`, retryable: true });
   }
 
   private async acquireOwnedLock(lockDirectory: string, label: string): Promise<() => Promise<void>> {
@@ -789,10 +791,10 @@ export class ActionStore {
         ? await processOwnerIsLive(observed.owner, this.isProcessAlive, this.processIdentity)
         : observed.pid !== undefined && this.isProcessAlive(observed.pid);
       if (observed.pid !== undefined && observedIsLive) {
-        throw new AxiError({ code: "ACTION_BUSY", message: `${label} is owned by another live process.`, retryable: true, details: { owner_pid: observed.pid } });
+        throw new SlkyError({ code: "ACTION_BUSY", message: `${label} is owned by another live process.`, retryable: true, details: { owner_pid: observed.pid } });
       }
       if (observed.pid === undefined && observed.ageMs < INCOMPLETE_LOCK_GRACE_MS) {
-        throw new AxiError({ code: "ACTION_BUSY", message: `${label} has an incomplete lock claim; retry shortly.`, retryable: true, details: { owner_pid: null } });
+        throw new SlkyError({ code: "ACTION_BUSY", message: `${label} has an incomplete lock claim; retry shortly.`, retryable: true, details: { owner_pid: null } });
       }
 
       await this.electStaleTakeover(lockDirectory, observed.identity, owner, label);
@@ -810,7 +812,7 @@ export class ActionStore {
         if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
       }
     }
-    throw new AxiError({ code: "ACTION_BUSY", message: `${label} changed while its stale lock was being recovered; retry shortly.`, retryable: true });
+    throw new SlkyError({ code: "ACTION_BUSY", message: `${label} changed while its stale lock was being recovered; retry shortly.`, retryable: true });
   }
 
   private async acquireLock(id: string): Promise<() => Promise<void>> {
@@ -818,7 +820,7 @@ export class ActionStore {
     try {
       await stat(files.plan);
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new AxiError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` });
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new SlkyError({ code: "ACTION_NOT_FOUND", message: `Action '${id}' was not found.` });
       throw cause;
     }
     return this.acquireOwnedLock(files.lock, `Action '${id}'`);
@@ -847,17 +849,17 @@ export class ActionStore {
   ): Promise<ActionPlan> {
     const descriptorBound = verification.uploadSnapshotDescriptorBound === true;
     if (descriptorBound && (!discardContent || !["applied", "not_applied", "unknown"].includes(state))) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "A bound upload descriptor can bypass pathname rechecking only while discarding content after a dispatch attempt." });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "A bound upload descriptor can bypass pathname rechecking only while discarding content after a dispatch attempt." });
     }
     const current = await this.loadVerified(action.id, descriptorBound ? { skipUploadSnapshotVerification: true } : {});
     if (descriptorBound && current.operation !== "file.upload") {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "Upload descriptor verification was supplied for a non-upload action." });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "Upload descriptor verification was supplied for a non-upload action." });
     }
     if (current.revision !== action.revision || current.state !== action.state) {
-      throw new AxiError({ code: "ACTION_BUSY", message: "The action state changed in another process; reload it before continuing.", retryable: true });
+      throw new SlkyError({ code: "ACTION_BUSY", message: "The action state changed in another process; reload it before continuing.", retryable: true });
     }
     if (!LEGAL_TRANSITIONS[current.state].has(state)) {
-      throw new AxiError({ code: "ACTION_STATE_INVALID", message: `Action cannot transition from '${current.state}' to '${state}'.` });
+      throw new SlkyError({ code: "ACTION_STATE_INVALID", message: `Action cannot transition from '${current.state}' to '${state}'.` });
     }
     const key = await this.readSigningKey(false);
     const next: StateData = {
@@ -908,7 +910,7 @@ export class ActionStore {
     const release = await this.acquireLock(action.id);
     return withOwnedRelease(async () => {
       const current = await this.loadVerified(action.id);
-      if (current.revision !== action.revision) throw new AxiError({ code: "ACTION_BUSY", message: "The action state is stale; reload and retry.", retryable: true });
+      if (current.revision !== action.revision) throw new SlkyError({ code: "ACTION_BUSY", message: "The action state is stale; reload and retry.", retryable: true });
       return await this.transitionLocked(current, state, changes, discardContent);
     }, release, (value, cause) => preserveActionOutcome(value, cause, "action"));
   }
@@ -924,14 +926,14 @@ export class ActionStore {
     return this.withLock(id, async (action) => {
       this.verifyApproval(action, approval);
       if (action.state === "abandoned") return action;
-      if (action.state !== "unknown") throw new AxiError({ code: "ACTION_STATE_INVALID", message: "Only an unknown action can be abandoned.", exitCode: 2 });
+      if (action.state !== "unknown") throw new SlkyError({ code: "ACTION_STATE_INVALID", message: "Only an unknown action can be abandoned.", exitCode: 2 });
       return this.transitionLocked(action, "abandoned", { result: { ...(action.result ?? {}), uncertainty_acknowledged: true } }, true);
     });
   }
 
   verifyApproval(action: ActionPlan, approval: string): void {
     if (!signatureMatches(action.approval, approval)) {
-      throw new AxiError({ code: "ACTION_INTEGRITY_FAILED", message: "The approval token does not match the signed action plan.", exitCode: 2 });
+      throw new SlkyError({ code: "ACTION_INTEGRITY_FAILED", message: "The approval token does not match the signed action plan.", exitCode: 2 });
     }
   }
 
@@ -961,7 +963,7 @@ export class ActionStore {
       } catch (cause) {
         // A concurrent terminal GC may remove the directory after the record
         // probe. Treat that exactly like an entry absent from the snapshot.
-        if (cause instanceof AxiError && cause.code === "ACTION_NOT_FOUND") return undefined;
+        if (cause instanceof SlkyError && cause.code === "ACTION_NOT_FOUND") return undefined;
         throw cause;
       }
     }));
@@ -1016,7 +1018,7 @@ export class ActionStore {
   }
 
   async purgeWorkspace(workspaceId: string): Promise<WorkspaceActionPurgeResult> {
-    if (!workspaceId) throw new AxiError({ code: "WORKSPACE_ID_INVALID", message: "A Slack workspace ID is required for action cleanup.", exitCode: 2 });
+    if (!workspaceId) throw new SlkyError({ code: "WORKSPACE_ID_INVALID", message: "A Slack workspace ID is required for action cleanup.", exitCode: 2 });
     await ensurePrivateDir(this.directory);
     const releaseLifecycle = await this.acquireWorkspaceLifecycleLock(workspaceId);
     return withOwnedRelease(async () => {
@@ -1039,7 +1041,7 @@ export class ActionStore {
       try {
         key = await this.readSigningKey(false);
       } catch (cause) {
-        const code = cause instanceof AxiError ? cause.code : "ACTION_SIGNING_KEY_MISSING";
+        const code = cause instanceof SlkyError ? cause.code : "ACTION_SIGNING_KEY_MISSING";
         const message = cause instanceof Error ? cause.message : "The action signing key is unavailable.";
         result.failed = entries.map((entry) => ({ entry: entry.name, code, message }));
         result.complete = false;
@@ -1064,10 +1066,10 @@ export class ActionStore {
             ? await this.quarantineActionDirectory(publishedId)
             : await this.quarantineNamedDirectory(entry.name, `.orphan-deleting-${randomBytes(16).toString("hex")}`);
         } catch (cause) {
-          if (cause instanceof AxiError && cause.code === "ACTION_NOT_FOUND") continue;
+          if (cause instanceof SlkyError && cause.code === "ACTION_NOT_FOUND") continue;
           result.failed.push({
             entry: entry.name,
-            code: cause instanceof AxiError ? cause.code : "ACTION_PURGE_FAILED",
+            code: cause instanceof SlkyError ? cause.code : "ACTION_PURGE_FAILED",
             message: cause instanceof Error ? cause.message : "The action directory could not be removed safely.",
           });
         } finally {
@@ -1075,7 +1077,7 @@ export class ActionStore {
             try { await releaseAction(); } catch (cause) {
               result.failed.push({
                 entry: entry.name,
-                code: cause instanceof AxiError ? cause.code : "ACTION_LOCK_RELEASE_FAILED",
+                code: cause instanceof SlkyError ? cause.code : "ACTION_LOCK_RELEASE_FAILED",
                 message: cause instanceof Error ? cause.message : "The action lock could not be released cleanly.",
               });
             }
@@ -1089,7 +1091,7 @@ export class ActionStore {
         } catch (cause) {
           result.failed.push({
             entry: entry.name,
-            code: cause instanceof AxiError ? cause.code : "ACTION_PURGE_FAILED",
+            code: cause instanceof SlkyError ? cause.code : "ACTION_PURGE_FAILED",
             message: cause instanceof Error ? cause.message : "The quarantined action data could not be deleted.",
           });
         }
@@ -1181,7 +1183,7 @@ export class ActionStore {
           quarantined = await this.quarantineActionDirectory(entry.name);
         });
       } catch (cause) {
-        if (cause instanceof AxiError && (cause.code === "ACTION_BUSY" || cause.code === "ACTION_NOT_FOUND")) continue;
+        if (cause instanceof SlkyError && (cause.code === "ACTION_BUSY" || cause.code === "ACTION_NOT_FOUND")) continue;
         throw cause;
       }
       if (!quarantined) continue;

@@ -1,3 +1,4 @@
+import { VERSION } from "./version.js";
 import { constants, createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { mkdir, open, stat } from "node:fs/promises";
@@ -7,7 +8,7 @@ import { finished } from "node:stream/promises";
 import { pipeline } from "node:stream/promises";
 import { LogLevel, WebClient, type Logger, type WebAPICallResult } from "@slack/web-api";
 import { z } from "zod";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { countSlackRequest, slackRequestAvailable } from "./request-budget.js";
 import type { VerifiedUploadSnapshot } from "./types.js";
 
@@ -122,7 +123,7 @@ function array(value: unknown): SlackRecord[] {
 
 function validate<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
   const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: `Slack's ${label} response does not match the supported schema.`, details: { issues: parsed.error.issues } });
+  if (!parsed.success) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: `Slack's ${label} response does not match the supported schema.`, details: { issues: parsed.error.issues } });
   return parsed.data;
 }
 
@@ -146,14 +147,14 @@ function authoritativeCode(code: string): boolean {
   ]).has(code);
 }
 
-function translateSlackError(cause: unknown, kind: CallKind): AxiError {
-  if (cause instanceof AxiError) return cause;
+function translateSlackError(cause: unknown, kind: CallKind): SlkyError {
+  if (cause instanceof SlkyError) return cause;
   const record = asRecord(cause);
   const data = asRecord(record.data);
   const rawCode = typeof data.error === "string" ? data.error : typeof record.code === "string" ? record.code : "slack_api_error";
   const code = rawCode.toLowerCase();
   if (code === "slack_webapi_platform_error" && typeof data.error !== "string") {
-    return new AxiError({
+    return new SlkyError({
       code: "SLACK_RESPONSE_INVALID",
       message: "Slack returned a malformed API response.",
       details: { dispatch_uncertain: kind !== "read" },
@@ -162,14 +163,14 @@ function translateSlackError(cause: unknown, kind: CallKind): AxiError {
   }
   const retryAfter = typeof record.retryAfter === "number" ? record.retryAfter : undefined;
   if (retryAfter !== undefined || code.includes("rate_limited")) {
-    return new AxiError({ code: "RATE_LIMITED", message: "Slack rate limited the request.", retryable: true, ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}), details: { slack_error: rawCode, dispatch_uncertain: false }, cause });
+    return new SlkyError({ code: "RATE_LIMITED", message: "Slack rate limited the request.", retryable: true, ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}), details: { slack_error: rawCode, dispatch_uncertain: false }, cause });
   }
   const authCodes = new Set(["invalid_auth", "not_authed", "account_inactive", "token_revoked"]);
   const scopeCodes = new Set(["missing_scope", "not_allowed_token_type", "no_permission", "restricted_action"]);
   const requestCode = code.includes("request_error") || code.includes("network") || code.includes("fetch");
   const httpCode = code.includes("http_error") || code.includes("status_code");
   const uncertain = kind !== "read" && !authoritativeCode(code);
-  return new AxiError({
+  return new SlkyError({
     code: authCodes.has(code) ? "AUTH_INVALID" : scopeCodes.has(code) ? "SLACK_PERMISSION_DENIED" : requestCode ? "SLACK_NETWORK_ERROR" : httpCode ? "SLACK_HTTP_ERROR" : rawCode.toUpperCase(),
     message: authCodes.has(code)
       ? "Slack rejected the configured credential."
@@ -189,7 +190,7 @@ function translateSlackError(cause: unknown, kind: CallKind): AxiError {
 async function bounded<T>(operation: Promise<T>, timeoutMs: number, kind: CallKind): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new AxiError({
+    timer = setTimeout(() => reject(new SlkyError({
       code: "REQUEST_TIMEOUT",
       message: `Slack did not respond within ${Math.round(timeoutMs / 1000)} seconds.`,
       retryable: kind === "read",
@@ -228,7 +229,7 @@ function allowedPermalinkHost(hostname: string): boolean {
 // between this adjusted value and the requested oldest value.
 function precedingSlackTimestamp(value: string): string {
   const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(value);
-  if (!match) throw new AxiError({ code: "SLACK_TIMESTAMP_INVALID", message: "Slack history boundaries must be nonnegative timestamps with at most six fractional digits." });
+  if (!match) throw new SlkyError({ code: "SLACK_TIMESTAMP_INVALID", message: "Slack history boundaries must be nonnegative timestamps with at most six fractional digits." });
   const seconds = BigInt(match[1]!);
   const fraction = BigInt((match[2] ?? "").padEnd(6, "0") || "0");
   const microseconds = seconds * 1_000_000n + fraction;
@@ -239,16 +240,16 @@ function precedingSlackTimestamp(value: string): string {
 
 export function assertSlackHttpsUrl(input: string, label = "Slack URL"): URL {
   let url: URL;
-  try { url = new URL(input); } catch { throw new AxiError({ code: "SLACK_URL_INVALID", message: `${label} must be a valid HTTPS Slack URL.` }); }
+  try { url = new URL(input); } catch { throw new SlkyError({ code: "SLACK_URL_INVALID", message: `${label} must be a valid HTTPS Slack URL.` }); }
   if (url.protocol !== "https:" || !allowedSlackHost(url.hostname) || url.username || url.password) {
-    throw new AxiError({ code: "SLACK_URL_INVALID", message: `${label} must use HTTPS on a Slack-owned host.` });
+    throw new SlkyError({ code: "SLACK_URL_INVALID", message: `${label} must use HTTPS on a Slack-owned host.` });
   }
   return url;
 }
 
 export function slackCookieHeader(cookie: string): string {
   if (!/^xoxd-(?:[A-Za-z0-9._~+/=-]|%[A-Fa-f0-9]{2})+$/.test(cookie)) {
-    throw new AxiError({ code: "AUTH_INVALID", message: "Slack browser authentication requires a valid xoxd cookie." });
+    throw new SlkyError({ code: "AUTH_INVALID", message: "Slack browser authentication requires a valid xoxd cookie." });
   }
   return `d=${cookie}`;
 }
@@ -273,7 +274,7 @@ export class PublicSlackClient {
   ) {
     const apiUrl = options.apiUrl ? assertSlackHttpsUrl(options.apiUrl, "Slack API base URL") : undefined;
     if (options.cookie !== undefined && apiUrl && !allowedSlackCookieHost(apiUrl.hostname)) {
-      throw new AxiError({ code: "SLACK_URL_INVALID", message: "Slack browser cookies can be sent only to slack.com or a Slack workspace subdomain." });
+      throw new SlkyError({ code: "SLACK_URL_INVALID", message: "Slack browser cookies can be sent only to slack.com or a Slack workspace subdomain." });
     }
     this.cookieHeader = options.cookie === undefined ? undefined : slackCookieHeader(options.cookie);
     this.fetchFn = options.fetch ?? globalThis.fetch;
@@ -285,7 +286,7 @@ export class PublicSlackClient {
       retryConfig: { retries: 0 },
       logger: noOpLogger,
       headers: {
-        "User-Agent": "slack-axi-cli/0.1",
+        "User-Agent": `slky/${VERSION}`,
         ...(this.cookieHeader === undefined ? {} : { Cookie: this.cookieHeader }),
       },
     };
@@ -295,7 +296,7 @@ export class PublicSlackClient {
 
   private async call<T extends WebAPICallResult>(kind: CallKind, operation: () => Promise<T>, retryRead = true): Promise<T> {
     const attempts = kind === "read" && retryRead ? 2 : 1;
-    let last: AxiError | undefined;
+    let last: SlkyError | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       countSlackRequest();
       try {
@@ -306,7 +307,7 @@ export class PublicSlackClient {
         if (!last.retryable || last.code === "RATE_LIMITED" || attempt + 1 >= attempts || !slackRequestAvailable()) throw last;
       }
     }
-    throw last ?? new AxiError({ code: "SLACK_API_ERROR", message: "Slack request failed." });
+    throw last ?? new SlkyError({ code: "SLACK_API_ERROR", message: "Slack request failed." });
   }
 
   async authTest(): Promise<SlackRecord> {
@@ -318,7 +319,7 @@ export class PublicSlackClient {
       validate(authRevokeSchema, await this.call("write", () => this.web.auth.revoke()), "auth.revoke");
       return { status: "revoked" };
     } catch (error) {
-      if (error instanceof AxiError && error.code === "AUTH_INVALID") {
+      if (error instanceof SlkyError && error.code === "AUTH_INVALID") {
         const slackError = typeof error.details?.slack_error === "string" ? error.details.slack_error : "invalid_auth";
         if (["invalid_auth", "not_authed", "account_inactive", "token_revoked"].includes(slackError)) {
           return { status: "already_inactive", slack_error: slackError };
@@ -391,7 +392,7 @@ export class PublicSlackClient {
       ...(options.cursor ? { cursor: options.cursor } : {}),
     }), options.retry), "conversations.history");
     const next = response.response_metadata?.next_cursor || undefined;
-    if (response.has_more && !next) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.history response claims another page without a continuation cursor.", details: { endpoint: "conversations.history", has_more: true } });
+    if (response.has_more && !next) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.history response claims another page without a continuation cursor.", details: { endpoint: "conversations.history", has_more: true } });
     return { items: response.messages, ...(next ? { next } : {}), complete: response.has_more !== true && !next };
   }
 
@@ -404,7 +405,7 @@ export class PublicSlackClient {
       ...(options.cursor ? { cursor: options.cursor } : {}),
     })), "conversations.replies");
     const next = response.response_metadata?.next_cursor || undefined;
-    if (response.has_more && !next) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.replies response claims another page without a continuation cursor.", details: { endpoint: "conversations.replies", has_more: true } });
+    if (response.has_more && !next) throw new SlkyError({ code: "SLACK_RESPONSE_INVALID", message: "Slack's conversations.replies response claims another page without a continuation cursor.", details: { endpoint: "conversations.replies", has_more: true } });
     return { items: response.messages, ...(next ? { next } : {}), complete: response.has_more !== true && !next };
   }
 
@@ -421,7 +422,7 @@ export class PublicSlackClient {
     if (reply) return reply;
     const next = thread.response_metadata?.next_cursor || undefined;
     if (thread.has_more || next) {
-      throw new AxiError({
+      throw new SlkyError({
         code: "SLACK_RESPONSE_INVALID",
         message: "Slack's exact reply lookup remained paginated without returning the requested timestamp.",
         details: { endpoint: "conversations.replies", has_more: thread.has_more, continuation_present: Boolean(next) },
@@ -447,7 +448,7 @@ export class PublicSlackClient {
     if (!allowedPermalinkHost(url.hostname)
       || url.port
       || url.pathname !== expectedPath) {
-      throw new AxiError({ code: "SLACK_URL_INVALID", message: "Slack permalink must identify the requested message on a Slack workspace host." });
+      throw new SlkyError({ code: "SLACK_URL_INVALID", message: "Slack permalink must identify the requested message on a Slack workspace host." });
     }
     return url.toString();
   }
@@ -462,7 +463,7 @@ export class PublicSlackClient {
       validate(okSchema, await this.call("write", () => this.web.reactions.add({ channel, timestamp, name })), "reactions.add");
       return { noop: false };
     } catch (error) {
-      if (error instanceof AxiError && error.details?.slack_error === "already_reacted") return { noop: true };
+      if (error instanceof SlkyError && error.details?.slack_error === "already_reacted") return { noop: true };
       throw error;
     }
   }
@@ -472,7 +473,7 @@ export class PublicSlackClient {
       validate(okSchema, await this.call("write", () => this.web.reactions.remove({ channel, timestamp, name })), "reactions.remove");
       return { noop: false };
     } catch (error) {
-      if (error instanceof AxiError && error.details?.slack_error === "no_reaction") return { noop: true };
+      if (error instanceof SlkyError && error.details?.slack_error === "no_reaction") return { noop: true };
       throw error;
     }
   }
@@ -553,7 +554,7 @@ export class PublicSlackClient {
           await bounded(bodyFinished, 120_000, "file");
           await options.snapshot.assertUnchanged();
           if (transferred !== size || digest.digest("hex") !== options.snapshot.expected_sha256) {
-            throw new AxiError({
+            throw new SlkyError({
               code: "ACTION_INTEGRITY_FAILED",
               message: "The transferred upload bytes no longer match the signed action snapshot.",
             });
@@ -561,7 +562,7 @@ export class PublicSlackClient {
         }
       } catch (cause) {
         const translated = translateSlackError(cause, "file");
-        throw new AxiError({
+        throw new SlkyError({
           code: translated.code,
           message: translated.message,
           retryable: false,
@@ -571,7 +572,7 @@ export class PublicSlackClient {
         });
       }
       if (uploadResponse.status !== 200) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "FILE_UPLOAD_FAILED",
           message: `Slack's external upload endpoint returned HTTP ${uploadResponse.status}.`,
           details: { dispatch_uncertain: true, upload_phase: "external_bytes", http_status: uploadResponse.status },
@@ -588,7 +589,7 @@ export class PublicSlackClient {
         return normalizeUploadResponse(completion);
       } catch (cause) {
         const translated = translateSlackError(cause, "file");
-        throw new AxiError({
+        throw new SlkyError({
           code: translated.code,
           message: translated.message,
           retryable: false,
@@ -610,12 +611,12 @@ export class PublicSlackClient {
 
   async download(url: string, output: string, expectedSize?: number, maxBytes = DEFAULT_DOWNLOAD_MAX_BYTES): Promise<{ path: string; bytes: number; redirects: number }> {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > MAX_DOWNLOAD_MAX_BYTES) {
-      throw new AxiError({ code: "FILE_DOWNLOAD_LIMIT_INVALID", message: `The download byte limit must be between 1 and ${MAX_DOWNLOAD_MAX_BYTES}.`, exitCode: 2 });
+      throw new SlkyError({ code: "FILE_DOWNLOAD_LIMIT_INVALID", message: `The download byte limit must be between 1 and ${MAX_DOWNLOAD_MAX_BYTES}.`, exitCode: 2 });
     }
     if (expectedSize !== undefined) {
-      if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) throw new AxiError({ code: "FILE_SIZE_MISMATCH", message: "Slack file metadata contains an invalid size." });
+      if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) throw new SlkyError({ code: "FILE_SIZE_MISMATCH", message: "Slack file metadata contains an invalid size." });
       if (expectedSize > maxBytes) {
-        throw new AxiError({
+        throw new SlkyError({
           code: "FILE_DOWNLOAD_LIMIT_EXCEEDED",
           message: "Slack file metadata exceeds the configured download limit.",
           details: { expected: expectedSize, maximum_bytes: maxBytes },
@@ -636,24 +637,24 @@ export class PublicSlackClient {
           signal: AbortSignal.timeout(120_000),
         });
       } catch (cause) {
-        throw new AxiError({ code: cause instanceof DOMException && cause.name === "TimeoutError" ? "REQUEST_TIMEOUT" : "FILE_DOWNLOAD_FAILED", message: "The Slack file download failed before completion.", retryable: true, cause });
+        throw new SlkyError({ code: cause instanceof DOMException && cause.name === "TimeoutError" ? "REQUEST_TIMEOUT" : "FILE_DOWNLOAD_FAILED", message: "The Slack file download failed before completion.", retryable: true, cause });
       }
       if (response.status < 300 || response.status >= 400) break;
-      if (redirects >= 5) throw new AxiError({ code: "FILE_REDIRECT_LIMIT", message: "Slack file download exceeded five redirects." });
+      if (redirects >= 5) throw new SlkyError({ code: "FILE_REDIRECT_LIMIT", message: "Slack file download exceeded five redirects." });
       const location = response.headers.get("location");
-      if (!location) throw new AxiError({ code: "FILE_DOWNLOAD_FAILED", message: "Slack returned a redirect without a destination." });
+      if (!location) throw new SlkyError({ code: "FILE_DOWNLOAD_FAILED", message: "Slack returned a redirect without a destination." });
       current = assertSlackHttpsUrl(new URL(location, current).toString(), "Slack file redirect");
       redirects += 1;
     }
-    if (!response.ok || !response.body) throw new AxiError({ code: "FILE_DOWNLOAD_FAILED", message: `Slack file download failed with HTTP ${response.status}.`, retryable: response.status >= 500 });
+    if (!response.ok || !response.body) throw new SlkyError({ code: "FILE_DOWNLOAD_FAILED", message: `Slack file download failed with HTTP ${response.status}.`, retryable: response.status >= 500 });
     const rawContentLength = response.headers.get("content-length");
     const contentLength = rawContentLength === null ? -1 : Number(rawContentLength);
     if (rawContentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
-      throw new AxiError({ code: "FILE_DOWNLOAD_FAILED", message: "Slack returned an invalid Content-Length for the file download." });
+      throw new SlkyError({ code: "FILE_DOWNLOAD_FAILED", message: "Slack returned an invalid Content-Length for the file download." });
     }
-    if (expectedSize !== undefined && contentLength >= 0 && contentLength !== expectedSize) throw new AxiError({ code: "FILE_SIZE_MISMATCH", message: "Slack's download size does not match file metadata." });
+    if (expectedSize !== undefined && contentLength >= 0 && contentLength !== expectedSize) throw new SlkyError({ code: "FILE_SIZE_MISMATCH", message: "Slack's download size does not match file metadata." });
     if (contentLength > maxBytes) {
-      throw new AxiError({ code: "FILE_DOWNLOAD_LIMIT_EXCEEDED", message: "Slack's download exceeds the configured byte limit.", details: { content_length: contentLength, maximum_bytes: maxBytes } });
+      throw new SlkyError({ code: "FILE_DOWNLOAD_LIMIT_EXCEEDED", message: "Slack's download exceeds the configured byte limit.", details: { content_length: contentLength, maximum_bytes: maxBytes } });
     }
     const byteLimit = expectedSize ?? maxBytes;
     let received = 0;
@@ -662,7 +663,7 @@ export class PublicSlackClient {
         const bytes = typeof chunk === "string" ? Buffer.byteLength(chunk, encoding as BufferEncoding) : chunk.byteLength;
         const next = received + bytes;
         if (!Number.isSafeInteger(next) || next > byteLimit) {
-          callback(new AxiError({
+          callback(new SlkyError({
             code: expectedSize === undefined ? "FILE_DOWNLOAD_LIMIT_EXCEEDED" : "FILE_SIZE_MISMATCH",
             message: expectedSize === undefined ? "The Slack file download exceeded the configured byte limit." : "The Slack file download exceeded the size declared in Slack metadata.",
             details: { received_at_least: next, maximum_bytes: byteLimit, ...(expectedSize === undefined ? {} : { expected: expectedSize }) },
@@ -676,8 +677,8 @@ export class PublicSlackClient {
     await mkdir(path.dirname(output), { recursive: true });
     await pipeline(Readable.fromWeb(response.body as never), limiter, createWriteStream(output, { flags: "wx", mode: 0o600 }));
     const bytes = (await stat(output)).size;
-    if (bytes !== received) throw new AxiError({ code: "FILE_DOWNLOAD_FAILED", message: "The completed download byte count does not match the streamed byte count." });
-    if (expectedSize !== undefined && bytes !== expectedSize) throw new AxiError({ code: "FILE_SIZE_MISMATCH", message: "The completed download size does not match Slack file metadata.", details: { expected: expectedSize, received: bytes } });
+    if (bytes !== received) throw new SlkyError({ code: "FILE_DOWNLOAD_FAILED", message: "The completed download byte count does not match the streamed byte count." });
+    if (expectedSize !== undefined && bytes !== expectedSize) throw new SlkyError({ code: "FILE_SIZE_MISMATCH", message: "The completed download size does not match Slack file metadata.", details: { expected: expectedSize, received: bytes } });
     return { path: output, bytes, redirects };
   }
 }
@@ -691,7 +692,7 @@ export function slackGrantedScopes(value: unknown): string[] | undefined {
   if (metadata.scopes === undefined) return undefined;
   const parsed = z.array(z.string().min(1)).safeParse(metadata.scopes);
   if (!parsed.success) {
-    throw new AxiError({
+    throw new SlkyError({
       code: "SLACK_RESPONSE_INVALID",
       message: "Slack's OAuth scope metadata does not match the supported schema.",
       details: { issues: parsed.error.issues },

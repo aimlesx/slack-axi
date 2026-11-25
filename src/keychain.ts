@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { AsyncEntry } from "@napi-rs/keyring";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
+import { appPaths } from "./paths.js";
 import type { AuthProfile } from "./types.js";
 
-export const KEYCHAIN_SERVICE = "dev.slack-axi";
+export { KEYCHAIN_SERVICE } from "./paths.js";
 export const ACTION_SIGNING_ACCOUNT = "local:action-signing:v1";
 
 export interface SecretStore {
@@ -13,40 +14,42 @@ export interface SecretStore {
 }
 
 export class NativeKeychain implements SecretStore {
+  constructor(private readonly service = appPaths().keychainService) {}
+
   private assertPlatform(): void {
     if (process.platform !== "darwin") {
-      throw new AxiError({ code: "KEYCHAIN_UNAVAILABLE", message: "Slack AXI v1 requires the native macOS Keychain." });
+      throw new SlkyError({ code: "KEYCHAIN_UNAVAILABLE", message: "slky v1 requires the native macOS Keychain." });
     }
   }
 
   async set(account: string, secret: string): Promise<void> {
     this.assertPlatform();
     try {
-      await new AsyncEntry(KEYCHAIN_SERVICE, account).setPassword(secret);
+      await new AsyncEntry(this.service, account).setPassword(secret);
     } catch (cause) {
-      throw new AxiError({ code: "KEYCHAIN_WRITE_FAILED", message: "Could not store the Slack credential in macOS Keychain.", cause });
+      throw new SlkyError({ code: "KEYCHAIN_WRITE_FAILED", message: "Could not store the Slack credential in macOS Keychain.", cause });
     }
   }
 
   async get(account: string): Promise<string> {
     this.assertPlatform();
     try {
-      const secret = await new AsyncEntry(KEYCHAIN_SERVICE, account).getPassword();
+      const secret = await new AsyncEntry(this.service, account).getPassword();
       if (!secret) throw new Error("missing");
       return secret;
     } catch (cause) {
-      throw new AxiError({ code: "CREDENTIAL_MISSING", message: "The Slack credential is missing or inaccessible in macOS Keychain.", suggestedCommand: "slack-axi auth doctor", cause });
+      throw new SlkyError({ code: "CREDENTIAL_MISSING", message: "The Slack credential is missing or inaccessible in macOS Keychain.", suggestedCommand: "slky auth doctor", cause });
     }
   }
 
   async delete(account: string): Promise<boolean> {
     this.assertPlatform();
     try {
-      return await new AsyncEntry(KEYCHAIN_SERVICE, account).deleteCredential();
+      return await new AsyncEntry(this.service, account).deleteCredential();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (/no entry|not found/i.test(message)) return false;
-      throw new AxiError({ code: "KEYCHAIN_DELETE_FAILED", message: "Could not remove the Slack credential from macOS Keychain.", cause });
+      throw new SlkyError({ code: "KEYCHAIN_DELETE_FAILED", message: "Could not remove the Slack credential from macOS Keychain.", cause });
     }
   }
 }

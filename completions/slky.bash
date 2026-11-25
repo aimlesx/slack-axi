@@ -1,4 +1,4 @@
-_slack_axi_complete() {
+_slky_complete() {
   local candidates="auth sync conversation user usergroup emoji read thread search inbox catchup message reaction file mark-read later policy action --workspace --output --fields --limit --cursor --full --verbose --help --version -v -V"
   if [[ $COMP_CWORD -eq 2 ]]; then
     case "${COMP_WORDS[1]}" in
@@ -21,4 +21,4 @@ _slack_axi_complete() {
   fi
   COMPREPLY=($(compgen -W "$candidates" -- "${COMP_WORDS[COMP_CWORD]}"))
 }
-complete -F _slack_axi_complete slack-axi
+complete -F _slky_complete slky

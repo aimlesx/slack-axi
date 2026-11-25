@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { link, readdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import { AxiError } from "./errors.js";
+import { SlkyError } from "./errors.js";
 import { ensurePrivateDir, immutableWriteJson } from "./fs-store.js";
 import {
   currentProcessOwner,
   defaultProcessAlive,
   defaultProcessIdentity,
   processOwnerIsLive,
+  validProcessFenceSocket,
   type ProcessIdentityReader,
   type ProcessLivenessProbe,
 } from "./process-identity.js";
@@ -55,9 +56,7 @@ function isOwner(value: unknown): value is LockOwner {
       || (Number.isSafeInteger(candidate.process_started_at_ms) && candidate.process_started_at_ms > 0))
     && (candidate.process_instance_id === undefined
       || (typeof candidate.process_instance_id === "string" && /^[A-Za-z0-9_-]{16,}$/.test(candidate.process_instance_id)))
-    && (candidate.process_fence_socket === undefined
-      || (typeof candidate.process_fence_socket === "string"
-        && /^\/(?:private\/)?tmp\/slack-axi-cli-lock-\d+-[a-f0-9]{32}\.sock$/.test(candidate.process_fence_socket)));
+    && (candidate.process_fence_socket === undefined || validProcessFenceSocket(candidate.process_fence_socket));
 }
 
 function sameOwner(left: LockOwner, right: LockOwner): boolean {
@@ -175,15 +174,15 @@ export class OwnedFileLock {
   }
 
   private busy(): never {
-    throw new AxiError({
+    throw new SlkyError({
       code: "CONFIG_BUSY",
-      message: "Another Slack AXI process is updating authentication configuration.",
+      message: "Another slky process is updating authentication configuration.",
       retryable: true,
     });
   }
 
   private invalid(): never {
-    throw new AxiError({
+    throw new SlkyError({
       code: "CONFIG_LOCK_INVALID",
       message: "The authentication configuration lock is malformed; refusing an unsafe takeover.",
     });
@@ -216,7 +215,7 @@ export class OwnedFileLock {
       }
       const moved = await this.readOwner(quarantine);
       if (moved.kind !== "owner" || !sameOwner(moved.owner, observed)) {
-        throw new AxiError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock changed during recovery." });
+        throw new SlkyError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock changed during recovery." });
       }
       await rm(quarantine, { force: true });
     } finally {
@@ -255,13 +254,13 @@ export class OwnedFileLock {
               await this.waitForNoReclaimers(Date.now() + this.timeoutMs);
               const visible = await this.readOwner();
               if (visible.kind !== "owner" || !sameOwner(visible.owner, owner)) {
-                throw new AxiError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock is no longer owned by this process." });
+                throw new SlkyError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock is no longer owned by this process." });
               }
               const releasedFile = path.join(path.dirname(this.filename), `.${path.basename(this.filename)}.${owner.nonce}.released`);
               await rename(this.filename, releasedFile);
               const moved = await this.readOwner(releasedFile);
               if (moved.kind !== "owner" || !sameOwner(moved.owner, owner)) {
-                throw new AxiError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock changed during release." });
+                throw new SlkyError({ code: "CONFIG_LOCK_LOST", message: "The authentication configuration lock changed during release." });
               }
               await rm(releasedFile, { force: true });
             },
