@@ -56,6 +56,7 @@ describe("package contract", () => {
     expect(workflow).toContain("node-version: 24");
     expect(workflow).toContain("npm install --prefix");
     expect(workflow).toContain("node_modules/.bin/slky");
+    expect(workflow).toContain("node_modules/@aimlesx/slky/skills/slky/SKILL.md");
     expect(workflow).not.toMatch(/uses:\s+[^\s]+@v\d/);
   });
 
@@ -115,7 +116,7 @@ describe("package contract", () => {
   it("publishes only the public runtime surface with public-source release metadata", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8"));
     const shrinkwrap = JSON.parse(await readFile("npm-shrinkwrap.json", "utf8"));
-    expect(packageJson.name).toBe("slky");
+    expect(packageJson.name).toBe("@aimlesx/slky");
     expect(packageJson.bin).toEqual({ slky: "dist/index.js" });
     expect(shrinkwrap).toMatchObject({ name: packageJson.name, version: packageJson.version });
     expect(shrinkwrap.packages[""]).toMatchObject({ name: packageJson.name, version: packageJson.version, bin: packageJson.bin });

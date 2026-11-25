@@ -22,7 +22,7 @@ slky --version
 Or install from npm:
 
 ```sh
-npm install --global slky
+npm install --global @aimlesx/slky
 slky --version
 ```
 
@@ -166,13 +166,13 @@ To let Claude find this CLI when someone asks about Slack, install the optional 
 For a global npm install:
 
 ```sh
-skill_dir="$(npm root --global)/slky/skills/slky"
+skill_dir="$(npm root --global)/@aimlesx/slky/skills/slky"
 ```
 
 For Homebrew:
 
 ```sh
-skill_dir="$(brew --prefix slky)/libexec/lib/node_modules/slky/skills/slky"
+skill_dir="$(brew --prefix slky)/libexec/lib/node_modules/@aimlesx/slky/skills/slky"
 ```
 
 From the project root, link the packaged skill:
@@ -235,12 +235,12 @@ Do not report suspected vulnerabilities through a public issue. Follow [SECURITY
 
 ### Upgrading from Slack AXI
 
-Version 0.2.0 renames the command, npm package and Homebrew formula to `slky`. slky reuses your existing Slack AXI workspaces, credentials, policies, cache and signed actions in place. Keep that data when switching packages. Running `auth remove` deletes a workspace.
+Version 0.2.0 renames the command and Homebrew formula to `slky` and publishes the npm package as `@aimlesx/slky`. slky reuses your existing Slack AXI workspaces, credentials, policies, cache and signed actions in place. Keep that data when switching packages. Running `auth remove` deletes a workspace.
 
 For npm, install slky, verify that you see your existing workspaces, then remove the old package:
 
 ```sh
-npm install --global slky
+npm install --global @aimlesx/slky
 slky auth list
 npm uninstall --global slack-axi-cli
 ```
@@ -258,13 +258,13 @@ Upgrade with the package manager you used:
 ```sh
 brew upgrade slky
 # or
-npm install --global slky@latest
+npm install --global @aimlesx/slky@latest
 ```
 
 Homebrew installs the Bash and Zsh completions and the man page automatically. The npm package also includes them; source the Bash file from your shell profile, or add the package's `completions` directory to Zsh's `fpath` before running `compinit`:
 
 ```sh
-source "$(npm root --global)/slky/completions/slky.bash"
+source "$(npm root --global)/@aimlesx/slky/completions/slky.bash"
 ```
 
 Removing the CLI package does not terminate a Slack session, revoke a user token, or erase local data. Before uninstalling:
@@ -272,7 +272,7 @@ Removing the CLI package does not terminate a Slack session, revoke a user token
 1. Resolve or explicitly abandon unknown actions and remove any downloaded files you no longer need.
 2. End remote access: for a browser profile, terminate the corresponding session in Slack; for an `xoxp` profile, stage and apply `slky auth revoke <workspace>` or revoke it in Slack administration. Uninstall the internal app separately if required.
 3. Run `slky auth remove <workspace>` for every configured workspace. This permanently removes its local credential, caches, and action records.
-4. Run `slky action gc` for any other retained workspaces, then run `brew uninstall slky` or `npm uninstall --global slky`, matching the package manager you used.
+4. Run `slky action gc` for any other retained workspaces, then run `brew uninstall slky` or `npm uninstall --global @aimlesx/slky`, matching the package manager you used.
 
 If cleanup cannot complete, inspect the Keychain service and local paths documented in [PRIVACY.md](PRIVACY.md).
 

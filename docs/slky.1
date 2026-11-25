@@ -4,6 +4,10 @@ slky - agent-facing Slack CLI with bounded reads and signed staged writes
 .SH SYNOPSIS
 .B slky
 [global options] command [command options]
+.SH INSTALLATION
+.B brew install aimlesx/tap/slky
+.PP
+.B npm install --global @aimlesx/slky
 .SH DESCRIPTION
 Every stdout path is one slky/v1 envelope encoded as strict TOON by default, or JSON/JSONL when requested. Operational failures exit 1 and invalid usage exits 2. Diagnostics appear on stderr only with --verbose.
 .SH GLOBAL OPTIONS
