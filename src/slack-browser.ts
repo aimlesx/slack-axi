@@ -26,12 +26,43 @@ const snapshotSchema = z.object({
 
 export type BrowserConversationSnapshot = z.infer<typeof snapshotSchema>;
 
+const threadCountsByChannelSchema = z.record(z.string().regex(/^[CDG][A-Z0-9]+$/), safeCountSchema);
+const threadCountsSchema = z.object({
+  unread_count_by_channel: threadCountsByChannelSchema,
+  mention_count_by_channel: threadCountsByChannelSchema,
+});
+
+export type ThreadCoverage = "available" | "missing" | "invalid" | "unsupported";
+type BrowserThreadCounts =
+  | { thread_coverage: "available"; threads: z.infer<typeof threadCountsSchema> }
+  | { thread_coverage: "missing" | "invalid"; threads?: undefined };
+
 const countsSchema = z.object({
   ok: z.literal(true),
   channels: z.array(snapshotSchema),
   mpims: z.array(snapshotSchema),
   ims: z.array(snapshotSchema),
 }).passthrough();
+
+type BrowserCounts = Pick<z.infer<typeof countsSchema>, "channels" | "mpims" | "ims"> & BrowserThreadCounts;
+
+export function browserCountEntries(counts: BrowserCounts) {
+  const entries = [
+    ...counts.channels.map((value) => ({ value, type: "channel" as const })),
+    ...counts.mpims.map((value) => ({ value, type: "group_dm" as const })),
+    ...counts.ims.map((value) => ({ value, type: "dm" as const })),
+  ];
+  const byId = new Map(entries.map(({ value, type }) => [value.id, { id: value.id, type, timeline: value }]));
+  const unreadById = counts.threads?.unread_count_by_channel;
+  const mentionsById = counts.threads?.mention_count_by_channel;
+  const ids = new Set([...byId.keys(), ...Object.keys(unreadById ?? {}), ...Object.keys(mentionsById ?? {})]);
+  return [...ids].map((id) => ({
+    id,
+    ...byId.get(id),
+    thread_unread_count: unreadById ? unreadById[id] ?? 0 : null,
+    thread_mentions: mentionsById ? mentionsById[id] ?? 0 : null,
+  }));
+}
 
 const notificationPrefsSchema = z.object({
   channels: z.record(z.string(), z.object({ muted: z.boolean().optional() }).passthrough()),
@@ -268,14 +299,19 @@ export class BrowserSlackClient {
     return schemaChanged(method, record, kind);
   }
 
-  async counts(): Promise<{ channels: BrowserConversationSnapshot[]; mpims: BrowserConversationSnapshot[]; ims: BrowserConversationSnapshot[] }> {
+  async counts(): Promise<BrowserCounts> {
     const response = parseSchema(
       countsSchema,
       await this.call("client.counts", { thread_counts_by_channel: true, org_wide_aware: true, include_file_channels: true }, "client-counts-api/fetchClientCounts"),
       "client.counts",
       "read",
     );
-    return { channels: response.channels, mpims: response.mpims, ims: response.ims };
+    const timelines = { channels: response.channels, mpims: response.mpims, ims: response.ims };
+    if (!Object.hasOwn(response, "threads")) return { ...timelines, thread_coverage: "missing" };
+    const parsed = threadCountsSchema.safeParse(response.threads);
+    return parsed.success
+      ? { ...timelines, thread_coverage: "available", threads: parsed.data }
+      : { ...timelines, thread_coverage: "invalid" };
   }
 
   async mutedChannels(): Promise<string[]> {

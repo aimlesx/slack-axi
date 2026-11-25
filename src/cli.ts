@@ -17,6 +17,7 @@ import { resolveTimeRange } from "./time.js";
 import { serialize } from "./output.js";
 import { validateBroadcastMentions } from "./policy.js";
 import { DEFAULT_DOWNLOAD_MAX_BYTES, MAX_DOWNLOAD_MAX_BYTES, slackArray, slackRecord } from "./slack-public.js";
+import { browserCountEntries, type ThreadCoverage } from "./slack-browser.js";
 import { COMMAND_METADATA, commandKey, decorateHelp } from "./metadata.js";
 import { DEFAULT_UPLOAD_MAX_BYTES, MAX_UPLOAD_MAX_BYTES, sha256File } from "./actions.js";
 import { VERSION } from "./version.js";
@@ -514,7 +515,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const snapshot = await app.cache.load(cacheIdentity(profile));
     const capabilityAge = profile.capability_probed_at ? Math.max(0, Math.floor((Date.now() - Date.parse(profile.capability_probed_at)) / 1000)) : undefined;
     const cacheAge = snapshot ? Math.max(0, Math.floor((Date.now() - Date.parse(snapshot.synced_at)) / 1000)) : undefined;
-    emit(command, { schema: "slack-axi/v1", ok: true, workspace: app.identity(profile), scope: { command: "home", source: "cache" }, data: { executable, description: HOME_DESCRIPTION, workspace_name: profile.team_name, actor: profile.actor_name ?? profile.actor_id, capabilities: { values: profile.capabilities, probed_at: profile.capability_probed_at ?? null, age_seconds: capabilityAge ?? null, stale: capabilityAge === undefined || capabilityAge > 604_800 }, cache: snapshot ? { synced_at: snapshot.synced_at, age_seconds: cacheAge, complete: Object.fromEntries(Object.entries(snapshot.coverage).filter(([key]) => key !== "backend_calls").map(([key, value]) => [key, typeof value === "object" && value !== null && "complete" in value ? value.complete : false])) } : { status: "not_synced" }, inbox: snapshot?.inbox ?? { status: "not_synced" } }, hints: snapshot ? [{ command: `slack-axi inbox --workspace ${shellArgument(profile.alias)}`, reason: "Inspect unread Slack activity." }] : [{ command: `slack-axi sync --workspace ${shellArgument(profile.alias)}`, reason: "Build the bounded local cache." }] });
+    emit(command, { schema: "slack-axi/v1", ok: true, workspace: app.identity(profile), scope: { command: "home", source: "cache" }, data: { executable, description: HOME_DESCRIPTION, workspace_name: profile.team_name, actor: profile.actor_name ?? profile.actor_id, capabilities: { values: profile.capabilities, probed_at: profile.capability_probed_at ?? null, age_seconds: capabilityAge ?? null, stale: capabilityAge === undefined || capabilityAge > 604_800 }, cache: snapshot ? { synced_at: snapshot.synced_at, age_seconds: cacheAge, complete: Object.fromEntries(Object.entries(snapshot.coverage).filter(([key]) => key !== "backend_calls").map(([key, value]) => [key, typeof value === "object" && value !== null && "complete" in value ? value.complete : false])) } : { status: "not_synced" }, inbox: snapshot?.inbox ?? { status: snapshot ? "unavailable" : "not_synced", ...(profile.kind === "user_token" ? { thread_coverage: "unsupported" } : {}) } }, hints: snapshot ? [{ command: `slack-axi inbox --workspace ${shellArgument(profile.alias)}`, reason: "Inspect unread Slack activity." }] : [{ command: `slack-axi sync --workspace ${shellArgument(profile.alias)}`, reason: "Build the bounded local cache." }] });
   });
 
   const auth = program.command("auth");
@@ -586,7 +587,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const { clients, snapshot } = await app.sync(globals(command).workspace, { maxPages });
     const sources = { conversations: snapshot.coverage.conversations, users: snapshot.coverage.users, emoji: snapshot.coverage.emoji, inbox: snapshot.coverage.inbox };
     const failed = Object.values(sources).filter((source) => !source.complete).length;
-    emit(command, { schema: "slack-axi/v1", ok: true, workspace: app.identity(clients.profile), scope: { command: "sync", max_pages_per_entity: maxPages, backend_calls: snapshot.coverage.backend_calls }, data: { synced_at: snapshot.synced_at, revision: snapshot.revision, known_counts: { conversations: snapshot.conversations.length, users: snapshot.users.length, emoji: Object.keys(snapshot.emoji).length }, inbox: snapshot.inbox ?? { status: "unavailable" }, sources }, coverage: { requested: 4, scanned: 4 - failed, failed, complete: failed === 0, sources, ...(failed ? { reason: "One or more sources failed or retained a continuation cursor." } : {}) } });
+    emit(command, { schema: "slack-axi/v1", ok: true, workspace: app.identity(clients.profile), scope: { command: "sync", max_pages_per_entity: maxPages, backend_calls: snapshot.coverage.backend_calls }, data: { synced_at: snapshot.synced_at, revision: snapshot.revision, known_counts: { conversations: snapshot.conversations.length, users: snapshot.users.length, emoji: Object.keys(snapshot.emoji).length }, inbox: snapshot.inbox ?? { status: "unavailable", ...(clients.profile.kind === "user_token" ? { thread_coverage: "unsupported" } : {}) }, sources }, coverage: { requested: 4, scanned: 4 - failed, failed, complete: failed === 0, sources, ...(failed ? { reason: "One or more sources failed or retained a continuation cursor." } : {}) } });
   });
 
   const conversation = program.command("conversation");
@@ -774,44 +775,48 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const limit = ensureLimit(globals(command).limit ?? 20);
     let rows: Record<string, unknown>[] = [];
     let coverage: CoverageInfo;
+    let threadCoverage: ThreadCoverage = "unsupported";
     const hints: Array<{ command: string; reason: string }> = [];
     if (ctx.browser) {
       const byId = new Map(ctx.conversations.map((item) => [item.id, item]));
       const counts = await ctx.browser.counts();
+      threadCoverage = counts.thread_coverage;
       const muted = options.includeMuted ? undefined : new Set(await ctx.browser.mutedChannels());
-      const entries = [
-        ...counts.channels.map((value) => ({ value, type: "channel" })),
-        ...counts.mpims.map((value) => ({ value, type: "group_dm" })),
-        ...counts.ims.map((value) => ({ value, type: "dm" })),
-      ];
+      const entries = browserCountEntries(counts);
       let unclassified = 0;
-      rows = entries.map(({ value, type }) => {
-        const metadata = byId.get(value.id);
+      rows = entries.map(({ id, timeline, type, thread_unread_count, thread_mentions }) => {
+        const metadata = byId.get(id);
         const classification = metadata?.is_external === true ? "partner" : metadata?.is_external === false ? "internal" : "unclassified";
         if (classification === "unclassified") unclassified += 1;
         return {
-          conversation_id: value.id,
-          type,
-          unread: value.has_unreads,
-          mentions: value.mention_count,
-          muted: muted ? muted.has(value.id) : null,
+          conversation_id: id,
+          type: type ?? (metadata?.type === "group" ? "channel" : metadata?.type) ?? (id.startsWith("C") ? "channel" : id.startsWith("D") ? "dm" : "unknown"),
+          unread: timeline?.has_unreads ?? null,
+          mentions: timeline?.mention_count ?? null,
+          thread_unread_count,
+          thread_mentions,
+          muted: muted ? muted.has(id) : null,
           classification,
-          last_read: value.last_read ?? null,
-          latest: value.latest ?? null,
+          last_read: timeline?.last_read ?? null,
+          latest: timeline?.latest ?? null,
         };
-      }).filter((row) => row.unread
-        && (!options.mentionsOnly || Number(row.mentions) > 0)
+      }).filter((row) => (row.unread || Number(row.thread_unread_count) > 0 || Number(row.thread_mentions) > 0)
+        && (!options.mentionsOnly || Number(row.mentions) > 0 || Number(row.thread_mentions) > 0)
         && (!options.type || row.type === options.type)
         && (!options.dmOnly || row.type === "dm" || row.type === "group_dm")
         && (!options.partnerOnly || row.classification === "partner")
         && (!options.internalOnly || row.classification === "internal")
         && (options.includeMuted || row.muted === false));
+      const reasons = [
+        unclassified ? "Some conversations lacked authoritative external-sharing metadata and were classified as unclassified." : undefined,
+        threadCoverage !== "available" ? `Unread thread coverage is unknown because the Slack thread counts section is ${threadCoverage}.` : undefined,
+      ].filter(Boolean);
       coverage = {
         requested: entries.length,
         scanned: entries.length,
         failed: unclassified,
-        complete: ctx.snapshot.coverage.conversations.complete && unclassified === 0,
-        ...(unclassified ? { reason: "Some unread conversations lacked authoritative external-sharing metadata and were classified as unclassified." } : {}),
+        complete: ctx.snapshot.coverage.conversations.complete && unclassified === 0 && threadCoverage === "available",
+        ...(reasons.length ? { reason: reasons.join(" ") } : {}),
       };
     } else {
       const active = ctx.conversations.filter((item) => !item.is_archived).sort((a, b) => a.id.localeCompare(b.id));
@@ -825,7 +830,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
           const unread = Number(info.unread_count_display ?? info.unread_count);
           const classification = typeof info.is_ext_shared === "boolean" ? (info.is_ext_shared ? "partner" : "internal") : "unclassified";
           if (classification === "unclassified") unclassified += 1;
-          if (unread > 0 && !options.mentionsOnly) rows.push({ conversation_id: item.id, type: item.type, unread_count: unread, mentions: null, muted: null, classification });
+          if (unread > 0 && !options.mentionsOnly) rows.push({ conversation_id: item.id, type: item.type, unread_count: unread, mentions: null, thread_unread_count: null, thread_mentions: null, muted: null, classification });
         } catch (error) {
           failed.push({ conversation_id: item.id, code: error instanceof AxiError ? error.code : "SLACK_API_ERROR" });
         }
@@ -835,6 +840,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
         && (!options.partnerOnly || row.classification === "partner")
         && (!options.internalOnly || row.classification === "internal"));
       const reasons = [
+        "User-token mode cannot determine unread thread counts.",
         options.mentionsOnly ? "User-token mode cannot determine mention counts." : undefined,
         skipped ? "Additional conversations were skipped by the 50-conversation fallback bound." : undefined,
         failed.length ? "Some conversations.info probes failed or lacked unread semantics." : undefined,
@@ -845,7 +851,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
         requested: active.length,
         scanned: candidates.length,
         failed: failed.length + unclassified,
-        complete: ctx.snapshot.coverage.conversations.complete && skipped === 0 && failed.length === 0 && unclassified === 0 && !options.mentionsOnly && Boolean(options.includeMuted),
+        complete: false,
         ...(reasons.length ? { reason: reasons.join(" ") } : {}),
       };
       hints.push({ command: `slack-axi auth add ${shellArgument(ctx.profile.alias)} --from-stdin`, reason: "Replace this fallback profile with browser-session credentials for exact mention and mute state." });
@@ -864,8 +870,9 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
       }
     }
     const priority = (row: Record<string, unknown>): number => row.type === "dm" ? 0 : row.type === "group_dm" ? 1 : row.classification === "partner" ? 2 : row.classification === "internal" ? 3 : 4;
+    const mentionPriority = (row: Record<string, unknown>): number => Math.max(Number(row.mentions ?? 0), Number(row.thread_mentions ?? 0));
     rows.sort((a, b) => priority(a) - priority(b)
-      || Number(b.mentions ?? 0) - Number(a.mentions ?? 0)
+      || mentionPriority(b) - mentionPriority(a)
       || String(b.latest ?? "").localeCompare(String(a.latest ?? ""))
       || String(a.conversation_id).localeCompare(String(b.conversation_id)));
     const shown = rows.slice(0, limit);
@@ -875,7 +882,7 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
       return result;
     }, {});
     if (!coverage.complete && !ctx.snapshot.coverage.conversations.complete) hints.push(syncHint(ctx));
-    emit(command, workspaceEnvelope(ctx, "inbox", { known_count: rows.length, totals_by_type: totals, conversations: shown }, {
+    emit(command, workspaceEnvelope(ctx, "inbox", { known_count: rows.length, totals_by_type: totals, thread_coverage: threadCoverage, conversations: shown }, {
       page: { shown: shown.length, complete: shown.length === rows.length && coverage.complete, source_complete: coverage.complete, total: rows.length, total_kind: coverage.complete ? "exact" : "known", ...(shown.length < rows.length ? { omitted: rows.length - shown.length } : {}) },
       coverage,
       ...(hints.length ? { hints } : {}),

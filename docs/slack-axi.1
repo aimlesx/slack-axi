@@ -325,9 +325,9 @@ slack-axi search files roadmap
 slack-axi search files report --all --max-results 100
 .fi
 .SS INBOX
-Summarize unread activity with browser-session counts or a bounded user-token fallback.
+Summarize unread timeline and thread activity with browser-session counts or a bounded user-token fallback.
 .PP
-Defaults: --limit 20; muted conversations excluded in browser mode; user-token mode probes at most 50 conversations and cannot prove mention or mute state
+Defaults: --limit 20; muted conversations excluded in browser mode; user-token mode probes at most 50 conversations and cannot prove thread, mention or mute state
 .br
 Incompatible combinations: --partner-only conflicts with --internal-only; --dm-only conflicts with a non-DM --type.
 .nf

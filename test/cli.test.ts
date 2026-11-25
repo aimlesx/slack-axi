@@ -550,9 +550,9 @@ describe("CLI fast and validation paths", () => {
   });
 
   it.each([
-    ["missing", async () => { throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Unread semantics are missing." }); }, false, "known"],
-    ["zero", async () => ({ id: "C1", unread_count_display: 0, is_ext_shared: false }), true, "exact"],
-  ])("distinguishes %s unread semantics from an authoritative empty inbox", async (_case, conversationInboxInfo, complete, totalKind) => {
+    ["missing", async () => { throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Unread semantics are missing." }); }, 1],
+    ["zero", async () => ({ id: "C1", unread_count_display: 0, is_ext_shared: false }), 0],
+  ])("reports %s timeline unread semantics with thread counts unsupported", async (_case, conversationInboxInfo, failed) => {
     const context = {
       profile: { alias: "work", team_id: "T1", actor_id: "U1", kind: "user_token", timezone: "UTC" },
       conversations: [{ id: "C1", name: "general", type: "channel", is_archived: false }],
@@ -581,13 +581,13 @@ describe("CLI fast and validation paths", () => {
     const envelope = JSON.parse(chunks.join(""));
     expect(envelope).toMatchObject({
       ok: true,
-      data: { known_count: 0, conversations: [] },
-      page: { complete, source_complete: complete, total: 0, total_kind: totalKind },
-      coverage: { requested: 1, scanned: 1, failed: complete ? 0 : 1, complete },
+      data: { known_count: 0, conversations: [], thread_coverage: "unsupported" },
+      page: { complete: false, source_complete: false, total: 0, total_kind: "known" },
+      coverage: { requested: 1, scanned: 1, failed, complete: false },
     });
   });
 
-  it("keeps user-token inbox coverage incomplete until unavailable mute filtering is made irrelevant", async () => {
+  it("reports unavailable user-token thread coverage independently of mute filtering", async () => {
     const context = {
       profile: { alias: "work", team_id: "T1", actor_id: "U1", kind: "user_token", timezone: "UTC" },
       conversations: [{ id: "C1", name: "general", type: "channel", is_archived: false }],
@@ -627,8 +627,9 @@ describe("CLI fast and validation paths", () => {
 
     const inclusiveResult = await run(["--include-muted"]);
     expect(inclusiveResult).toMatchObject({
-      page: { complete: true, source_complete: true, total: 0, total_kind: "exact" },
-      coverage: { requested: 1, scanned: 1, failed: 0, complete: true },
+      data: { thread_coverage: "unsupported" },
+      page: { complete: false, source_complete: false, total: 0, total_kind: "known" },
+      coverage: { requested: 1, scanned: 1, failed: 0, complete: false, reason: "User-token mode cannot determine unread thread counts." },
     });
   });
 
@@ -658,6 +659,8 @@ describe("CLI fast and validation paths", () => {
             channels: [{ id: "C1", mention_count: 2, has_unreads: true, last_read: "1.000001", latest: "2.000001" }],
             mpims: [],
             ims: [{ id: "D1", mention_count: 1, has_unreads: true }],
+            thread_coverage: "available",
+            threads: { unread_count_by_channel: {}, mention_count_by_channel: {} },
           };
         },
         mutedChannels,
@@ -676,11 +679,50 @@ describe("CLI fast and validation paths", () => {
     expect(JSON.parse(chunks.join(""))).toMatchObject({
       data: {
         known_count: 1,
-        conversations: [{ conversation_id: "C1", unread: true, mentions: 2, muted: false, last_read: "1.000001", latest: "2.000001" }],
+        thread_coverage: "available",
+        conversations: [{ conversation_id: "C1", unread: true, mentions: 2, thread_unread_count: 0, thread_mentions: 0, muted: false, last_read: "1.000001", latest: "2.000001" }],
       },
       page: { shown: 1, complete: true, source_complete: true, total: 1, total_kind: "exact" },
       coverage: { requested: 2, scanned: 2, failed: 0, complete: true },
     });
+  });
+
+  it.each([[], ["--mentions-only"]])("joins unread thread rows before filtering and limiting (%j)", async (...args) => {
+    const history = vi.fn();
+    const counts = vi.fn(async () => ({
+      channels: [{ id: "C1", has_unreads: false, mention_count: 0 }],
+      mpims: [],
+      ims: [],
+      thread_coverage: "available",
+      threads: {
+        unread_count_by_channel: { C1: 2, C2: 6, C3: 6 },
+        mention_count_by_channel: { C1: 1, C2: 5, C3: 5 },
+      },
+    }));
+    const context = {
+      profile: { alias: "work", team_id: "T1", actor_id: "U1", kind: "browser" },
+      conversations: ["C1", "C2", "C3"].map((id) => ({ id, type: "channel", is_external: id === "C3" })),
+      snapshot: { coverage: { conversations: { complete: true } } },
+      public: { history },
+      browser: { counts, async mutedChannels() { return ["C2"]; } },
+    };
+    const app = { async context() { return context; } } as unknown as SlackAxiApp;
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await createProgram(app).parseAsync(["node", "slack-axi", "--output", "json", "inbox", "--type", "channel", "--internal-only", "--limit", "1", ...args]);
+      expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({
+        data: {
+          known_count: 1,
+          thread_coverage: "available",
+          conversations: [{ conversation_id: "C1", unread: false, mentions: 0, thread_unread_count: 2, thread_mentions: 1 }],
+        },
+        page: { complete: true, total: 1 },
+      });
+    } finally {
+      write.mockRestore();
+    }
+    expect(counts).toHaveBeenCalledTimes(1);
+    expect(history).not.toHaveBeenCalled();
   });
 
   it("reports and authenticates catchup continuation for a busy conversation", async () => {

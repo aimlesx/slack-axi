@@ -7,6 +7,7 @@ import { entityMaps } from "./domain.js";
 import { AxiError } from "./errors.js";
 import { NativeKeychain, type SecretStore } from "./keychain.js";
 import { PolicyStore } from "./policy.js";
+import { browserCountEntries } from "./slack-browser.js";
 import type { AuthProfile, Conversation, User, WorkspaceIdentity } from "./types.js";
 
 export interface WorkspaceContext extends WorkspaceClients {
@@ -122,16 +123,21 @@ export class SlackAxiApp {
       try {
         backendCalls += 1;
         const counts = await clients.browser.counts();
-        const entries = [...counts.channels, ...counts.mpims, ...counts.ims];
+        const entries = browserCountEntries(counts);
         snapshot.inbox = {
-          unread_conversations: entries.filter((item) => item.has_unreads).length,
-          mentions: entries.reduce((total, item) => total + item.mention_count, 0),
-          exact: true,
+          unread_conversations: entries.filter((item) => item.timeline?.has_unreads || (item.thread_unread_count ?? 0) > 0 || (item.thread_mentions ?? 0) > 0).length,
+          mentions: entries.reduce((total, item) => total + (item.timeline?.mention_count ?? 0), 0),
+          thread_coverage: counts.thread_coverage,
+          thread_unread_count: counts.threads ? entries.reduce((total, item) => total + (item.thread_unread_count ?? 0), 0) : null,
+          thread_mentions: counts.threads ? entries.reduce((total, item) => total + (item.thread_mentions ?? 0), 0) : null,
+          exact: counts.thread_coverage === "available",
           synced_at: new Date().toISOString(),
         };
         const conversationById = new Map(conversations.map((item) => [String(item.id ?? ""), item]));
         const unclassified = entries.filter((item) => typeof conversationById.get(item.id)?.is_ext_shared !== "boolean").length;
-        snapshot.coverage.inbox = unclassified === 0 && snapshot.coverage.conversations.complete
+        snapshot.coverage.inbox = counts.thread_coverage !== "available"
+          ? { scanned: entries.length, complete: false, error: { code: "INBOX_THREADS_UNAVAILABLE", message: `The Slack thread counts section is ${counts.thread_coverage}.` } }
+          : unclassified === 0 && snapshot.coverage.conversations.complete
           ? { scanned: entries.length, complete: true }
           : {
               scanned: entries.length,
