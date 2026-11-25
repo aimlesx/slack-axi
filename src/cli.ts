@@ -13,6 +13,8 @@ import { applyAction, applyCommand, directOrStage, newClientMessageId, reconcile
 import { SLACK_MESSAGE_MAX_CHARACTERS, SLACK_MESSAGE_MAX_UTF8_BYTES, validateSlackMessageText } from "./message-text.js";
 import { normalizeConversation, normalizeFile, normalizeMessage, normalizeUser, normalizeUsergroup, resolveConversation, resolveUser } from "./domain.js";
 import { parseMessageRef } from "./refs.js";
+import { readWithThreads } from "./read-with-threads.js";
+import { withSlackRequestBudget } from "./request-budget.js";
 import { resolveTimeRange, slackTimestampMicros } from "./time.js";
 import { serialize } from "./output.js";
 import { validateBroadcastMentions } from "./policy.js";
@@ -670,8 +672,69 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
   const emoji = program.command("emoji");
   emoji.command("search <query>").action(async (query, _options, command) => { const ctx = await context(app, command); const needle = String(query).toLowerCase(); const matched = Object.entries(ctx.snapshot.emoji).filter(([name]) => name.toLowerCase().includes(needle)).sort(([a], [b]) => a.localeCompare(b)).map(([name, url]) => ({ name, url })); const restart = `slack-axi emoji search ${shellArgument(String(query))} ${cacheRestartOptions(ctx, command)}`; const page = await cacheSlice(ctx, command, "emoji search", { query: needle }, matched, ctx.snapshot.coverage.emoji, restart, app.actions); const hints = !ctx.snapshot.coverage.emoji.complete ? [syncHint(ctx)] : undefined; emit(command, workspaceEnvelope(ctx, "emoji.search", { known_count: matched.length, emoji: page.items }, { page: page.page, ...(hints ? { hints } : {}) })); });
 
-  program.command("read <conversation>").option("--since <duration>").option("--from <timestamp>").option("--to <timestamp>").option("--on <date>").action(async (selector, options, command) => {
+  program.command("read <conversation>").option("--since <duration>").option("--from <timestamp>").option("--to <timestamp>").option("--on <date>")
+    .option("--include-threads", "expand the replies of in-window parents")
+    .option("--max-requests <n>", "bound expanded read Slack attempts (default: 10, maximum: 50)", positiveInteger)
+    .action(async (selector: string, options, command) => {
     preflightTimeFlags(options);
+    if (options.maxRequests !== undefined && !options.includeThreads) {
+      throw new AxiError({ code: "READ_OPTIONS_CONFLICT", message: "--max-requests requires --include-threads.", exitCode: 2 });
+    }
+    if (options.includeThreads) {
+      const limit = ensureLimit(globals(command).limit ?? 50, 100);
+      const maxRequests = ensureLimit(options.maxRequests ?? 10, 50);
+      await withSlackRequestBudget(maxRequests, async (budget) => {
+        const isId = /^[CDG][A-Z0-9]+$/.test(selector);
+        const coldCache = isId ? "empty" : selector.startsWith("@") ? "entities" : "conversations";
+        const ctx = await app.context(globals(command).workspace, false, coldCache);
+        const item = isId
+          ? ctx.conversations.find(({ id }) => id === selector) ?? { id: selector, name: selector }
+          : await resolveConversationFor(selector, ctx);
+        const range = resolveTimeRange({ ...options, timezone: ctx.profile.timezone });
+        const from = range.from.toISOString();
+        const to = range.to.toISOString();
+        const restart = `slack-axi read ${item.id} --from ${from} --to ${to} --include-threads --max-requests ${maxRequests} ${liveRestartOptions(ctx, command, true)}`;
+        const token = globals(command).cursor;
+        const result = await readWithThreads({
+          client: ctx.public,
+          teamId: ctx.profile.team_id,
+          channel: item.id,
+          oldest: String(range.from.getTime() / 1000),
+          latest: String(range.to.getTime() / 1000),
+          limit,
+          budget,
+          ...(token ? { token } : {}),
+          binding: liveCursorBinding([ctx.profile.team_id, ctx.profile.actor_id, ctx.snapshot.credential_generation, item.id, from, to, "include-threads"]),
+          restart,
+          integrity: app.actions,
+          normalize: (raw) => normalizeMessage(raw, ctx.profile.team_id, item.id, ctx.userMap, globals(command).full, ctx.profile.actor_id, includeRichContent(command)),
+        });
+        const complete = !result.next && result.failedThreads === 0;
+        const hints = [
+          ...(result.next ? [{ command: `${restart} --cursor ${result.next}`, reason: "Continue the same bounded timeline and its pending threads." }] : []),
+          ...(!globals(command).full && [...result.parents, ...result.threads.flatMap((thread) => thread.replies)].some((entry) => entry.text_truncated)
+            ? [{ command: `${restart} --full${token ? ` --cursor ${token}` : ""}`, reason: "Expand truncated message text while preserving the exact window and page." }]
+            : []),
+        ];
+        emit(command, workspaceEnvelope(ctx, "read", {
+          conversation: { id: item.id, name: item.name },
+          range: { from, to, interval: "[from,to)", timezone: range.timezone, year: range.year, thread_scope: "in_window_replies_to_in_window_parents" },
+          count: result.shown,
+          messages: result.parents,
+          threads: result.threads,
+          expansion: {
+            max_messages: limit, max_requests: maxRequests, requests_used: budget.used,
+            history_complete: result.historyComplete, pending_threads: result.pendingThreads,
+            failed_threads: result.failedThreads, failure_sample: result.failureSample,
+            ...(result.historyFailure ? { history_error: result.historyFailure } : {}),
+          },
+        }, {
+          page: { shown: result.shown, complete, source_complete: complete, total: result.emitted, total_kind: complete ? "exact" : "scanned", ...(result.next ? { next_cursor: result.next } : {}) },
+          ...(hints.length ? { hints } : {}),
+        }));
+      });
+      return;
+    }
     const ctx = await context(app, command);
     const item = await resolveConversationFor(selector, ctx);
     const range = resolveTimeRange({ ...options, timezone: ctx.profile.timezone });

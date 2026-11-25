@@ -56,7 +56,10 @@ function selectFields(value: unknown, fields?: string[], targetFields = fields):
     const command = (record.scope as { command?: string } | undefined)?.command;
     const data = record.data as Record<string, unknown> | undefined;
     if (data && (command === "read" || command === "thread" || command === "search.messages") && Array.isArray(data.messages)) {
-      return { ...record, data: { ...data, messages: data.messages.map((item) => projectRow(item, fields)) } };
+      const threads = command === "read" && Array.isArray(data.threads)
+        ? data.threads.map((thread: { replies: unknown[] }) => ({ ...thread, replies: thread.replies.map((item) => projectRow(item, fields)) }))
+        : undefined;
+      return { ...record, data: { ...data, messages: data.messages.map((item) => projectRow(item, fields)), ...(threads ? { threads } : {}) } };
     }
     if (data && command === "message.get") {
       return { ...record, data: { ...data, message: projectRow(data.message, fields) } };

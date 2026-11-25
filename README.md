@@ -157,6 +157,8 @@ In browser mode, `inbox` combines timeline badges and unread thread counts by co
 
 `catchup` ranks conversations by latest known activity, including already-read messages. It uses browser counts where available, cached conversation timestamps next, and names and IDs for ties or unknown activity. The `selection` result reports the method, timestamp sources and cache completeness. Use repeatable `--conversation <name-or-id>` to select conversations explicitly within `--max-conversations`. Each selected conversation costs at most one history request.
 
+Use `read '#eng' --since 6h --include-threads` to retrieve parents and their replies in the same half-open window `[from,to)`. Replies to older parents fall outside discovery. Broadcast replies appear under their in-window parent. `--limit` counts unique parents and replies (default 50, maximum 100). `--max-requests` counts Slack attempts including cache population and retries (default 10, maximum 50). Use the emitted command to resume the original window. Per-thread results distinguish complete, empty, deferred, and failed retrieval.
+
 ## Safe writes
 
 Remote writes stage a signed, 15-minute action by default:

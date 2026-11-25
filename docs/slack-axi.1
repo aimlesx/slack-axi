@@ -262,16 +262,19 @@ slack-axi emoji search party
 slack-axi emoji search party --limit 10
 .fi
 .SS READ
-Read a bounded conversation timeline with thread summaries.
+Read a bounded conversation timeline and optionally expand in-window threads.
 .PP
-Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters from cards and attachments; --limit 50; rolling 24-hour range ending now when no time flag is supplied; continuation cursors carry the cumulative scanned count
+Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters from cards and attachments; --limit 50; rolling 24-hour range ending now when no time flag is supplied; expanded reads count parents and replies toward --limit and default to --max-requests 10 (maximum 50)
 .br
-Incompatible combinations: Use only one of --since, --from, or --on; --on also conflicts with --to.
+Incompatible combinations: Use only one of --since, --from, or --on; --on also conflicts with --to. --max-requests requires --include-threads.
 .nf
 slack-axi read '#eng' --since 24h
 .fi
 .nf
 slack-axi read C012ABC --on 2026-08-15
+.fi
+.nf
+slack-axi read C012ABC --since 6h --include-threads --max-requests 10
 .fi
 .nf
 slack-axi read C012ABC --from 2026-08-15T09:00:00+02:00 --to 2026-08-15T17:00:00+02:00
