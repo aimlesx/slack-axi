@@ -127,6 +127,7 @@ jobs:
             "docs/slack-axi.1",
             "npm-shrinkwrap.json",
             "package.json",
+            "skills/slack-axi/SKILL.md",
             "slack-app-manifest.json",
           ]);
           const artifactFiles = artifact.files.map(({ path }) => path);
