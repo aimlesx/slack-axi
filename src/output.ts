@@ -30,6 +30,23 @@ function containsTargetRecord(value: unknown, targetFields: string[]): boolean {
     || Object.values(record).some((child) => containsTargetRecord(child, targetFields));
 }
 
+function projectCatchup(data: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+  if (!Array.isArray(data.conversations)) return data;
+  const onlyOrigins = fields.includes("author_origin") && !fields.includes("messages");
+  const conversations = data.conversations.map((row: Record<string, unknown>) => {
+    const conversation = row.conversation as Record<string, unknown>;
+    const conversationFields = fields.filter((field) => Object.hasOwn(conversation, field));
+    return {
+      ...projectRow(row, fields) as Record<string, unknown>,
+      conversation: conversationFields.length ? projectRow(conversation, conversationFields) : conversation,
+      ...(onlyOrigins && Array.isArray(row.messages)
+        ? { messages: row.messages.map((message) => projectRow(message, ["author_origin"])) }
+        : {}),
+    };
+  });
+  return { ...data, conversations };
+}
+
 function selectFields(value: unknown, fields?: string[], targetFields = fields): unknown {
   if (!fields?.length || !targetFields?.length) return value;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return projectData(value, fields, targetFields);
@@ -43,6 +60,12 @@ function selectFields(value: unknown, fields?: string[], targetFields = fields):
     }
     if (data && command === "message.get") {
       return { ...record, data: { ...data, message: projectRow(data.message, fields) } };
+    }
+    if (data && command === "catchup") {
+      return { ...record, data: projectCatchup(data, fields) };
+    }
+    if (data && command === "message.cite" && Array.isArray(data.citations)) {
+      return { ...record, data: { ...data, citations: data.citations.map((row) => projectRow(row, fields)) } };
     }
     return { ...record, data: projectData(record.data, fields, targetFields) };
   }

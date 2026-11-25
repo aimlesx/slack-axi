@@ -8,13 +8,13 @@ import { AxiError } from "./errors.js";
 import { NativeKeychain, type SecretStore } from "./keychain.js";
 import { PolicyStore } from "./policy.js";
 import { browserCountEntries } from "./slack-browser.js";
-import type { AuthProfile, Conversation, User, WorkspaceIdentity } from "./types.js";
+import type { AuthProfile, CachedAuthor, Conversation, User, WorkspaceIdentity } from "./types.js";
 
 export interface WorkspaceContext extends WorkspaceClients {
   snapshot: CacheSnapshot;
   conversations: Conversation[];
   users: User[];
-  userMap: Map<string, User>;
+  userMap: Map<string, CachedAuthor>;
 }
 
 export class SlackAxiApp {

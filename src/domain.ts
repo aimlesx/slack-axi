@@ -3,7 +3,7 @@ import { messageRichFields } from "./rich-content.js";
 import { createMessageRef } from "./refs.js";
 import { slackArray, slackRecord } from "./slack-public.js";
 import type { CacheSnapshot } from "./cache.js";
-import type { Conversation, Message, User } from "./types.js";
+import type { AuthorOrigin, CachedAuthor, Conversation, Message, User } from "./types.js";
 
 function text(value: unknown, fallback = ""): string { return typeof value === "string" ? value : fallback; }
 function bool(value: unknown): boolean { return value === true; }
@@ -44,15 +44,64 @@ export function normalizeUser(raw: Record<string, unknown>): User {
   };
 }
 
+function isWorkspaceId(value: unknown): value is string {
+  return typeof value === "string" && /^T[A-Z0-9]+$/.test(value);
+}
+
+function cachedWorkspaceIds(raw: Record<string, unknown>): string[] | undefined {
+  const homeIds = [raw.team_id, raw.team, slackRecord(raw.profile).team].filter((id) => id !== undefined);
+  if (!homeIds.every(isWorkspaceId)) return [];
+  const memberships = [raw.teams, slackRecord(raw.enterprise_user).teams].filter((ids) => ids !== undefined);
+  if (!memberships.length) {
+    const teams = [...new Set(homeIds)];
+    if (teams.length > 1) return [];
+    return teams.length ? teams : undefined;
+  }
+  const first = memberships[0];
+  if (!Array.isArray(first) || !first.every(isWorkspaceId)) return [];
+  const teams = new Set(first);
+  // Grid users may post from any of their workspaces. Reconcile single-team
+  // fields against the full membership list before using either as evidence.
+  for (const list of memberships.slice(1)) {
+    if (!Array.isArray(list) || new Set(list).size !== teams.size || !list.every((id) => teams.has(id))) return [];
+  }
+  return homeIds.every((id) => teams.has(id)) ? [...teams] : [];
+}
+
+function authorOrigin(raw: Record<string, unknown>, teamId: string, actorId: string | undefined, user: CachedAuthor | undefined): AuthorOrigin {
+  const userId = text(raw.user);
+  const userProfile = slackRecord(raw.user_profile);
+  if (userProfile.id && userProfile.id !== userId) return "unknown";
+  const botProfile = slackRecord(raw.bot_profile);
+  const bot = Boolean(text(raw.bot_id) || text(raw.app_id) || text(botProfile.id) || text(botProfile.app_id)
+    || raw.subtype === "bot_message" || user?.is_bot || userId === "USLACKBOT");
+  if (bot) {
+    if ((userId && userId === actorId) || (userId && botProfile.user_id && botProfile.user_id !== userId)) return "unknown";
+    return "app_or_bot";
+  }
+  if (!/^[UW][A-Z0-9]+$/.test(userId)) return "unknown";
+
+  const messageTeams = [raw.user_team, raw.team, userProfile.team].filter((id) => id !== undefined);
+  if (!messageTeams.every(isWorkspaceId) || new Set(messageTeams).size > 1) return "unknown";
+  const messageTeam = messageTeams[0];
+  const memberships = user?.workspace_ids;
+  if (memberships && (!memberships.length || (messageTeam && !memberships.includes(messageTeam)))) return "unknown";
+  const teams = memberships ?? messageTeams;
+  if (userId === actorId) return !teams.length || teams.includes(teamId) ? "self" : "unknown";
+  if (!teams.length) return "unknown";
+  return teams.includes(teamId) ? "same_workspace" : "other_workspace";
+}
+
 export function truncateText(value: string, full: boolean, maximum = 600): { text: string; text_chars: number; text_truncated: boolean } {
   const chars = Array.from(value);
   return { text: full || chars.length <= maximum ? value : `${chars.slice(0, maximum).join("")}…`, text_chars: chars.length, text_truncated: !full && chars.length > maximum };
 }
 
-export function normalizeMessage(raw: Record<string, unknown>, teamId: string, conversationId: string, users: Map<string, User>, full = false, actorId?: string, includeRich = false): Message {
+export function normalizeMessage(raw: Record<string, unknown>, teamId: string, conversationId: string, users: Map<string, CachedAuthor>, full = false, actorId?: string, includeRich = false): Message {
   const ts = text(raw.ts);
   if (!ts) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message without a timestamp." });
   const authorId = text(raw.user, text(raw.bot_id));
+  const author = users.get(authorId);
   const messageText = truncateText(text(raw.text), full);
   const replyCount = number(raw.reply_count);
   const replyUsers = Array.isArray(raw.reply_users) ? raw.reply_users.filter((id): id is string => typeof id === "string") : [];
@@ -61,7 +110,8 @@ export function normalizeMessage(raw: Record<string, unknown>, teamId: string, c
     conversation_id: conversationId,
     ts,
     time: new Date(Number(ts.split(".")[0]) * 1000).toISOString(),
-    ...(authorId ? { author_id: authorId, author: users.get(authorId)?.display_name || users.get(authorId)?.real_name || authorId } : {}),
+    ...(authorId ? { author_id: authorId, author: author?.display_name || author?.real_name || authorId } : {}),
+    author_origin: authorOrigin(raw, teamId, actorId, author),
     ...messageText,
     ...messageRichFields(raw, includeRich),
     ...(replyCount > 0 ? { thread: { ref: createMessageRef(teamId, conversationId, text(raw.thread_ts, ts)), replies: replyCount, participant_ids: replyUsers, ...(typeof raw.latest_reply === "string" ? { last_reply: new Date(Number(raw.latest_reply.split(".")[0]) * 1000).toISOString() } : {}) } } : {}),
@@ -72,9 +122,26 @@ export function normalizeMessage(raw: Record<string, unknown>, teamId: string, c
   };
 }
 
-export function entityMaps(snapshot: CacheSnapshot): { conversations: Conversation[]; users: User[]; userMap: Map<string, User> } {
-  const users = snapshot.users.map(normalizeUser);
-  return { conversations: snapshot.conversations.map(normalizeConversation), users, userMap: new Map(users.map((user) => [user.id, user])) };
+export function entityMaps(snapshot: CacheSnapshot): { conversations: Conversation[]; users: User[]; userMap: Map<string, CachedAuthor> } {
+  const users: User[] = [];
+  const userMap = new Map<string, CachedAuthor>();
+  for (const raw of snapshot.users) {
+    const user = normalizeUser(raw);
+    users.push(user);
+    const prior = userMap.get(user.id);
+    const workspaceIds = cachedWorkspaceIds(raw) ?? prior?.workspace_ids;
+    const profile = slackRecord(raw.profile);
+    const isBot = user.is_bot || raw.is_workflow_bot === true || raw.is_agentforce_bot === true || Boolean(text(profile.bot_id));
+    if (prior && (prior.is_bot !== isBot || (prior.workspace_ids && workspaceIds
+      && (prior.workspace_ids.length !== workspaceIds.length || !prior.workspace_ids.every((id) => workspaceIds.includes(id)))))) {
+      // Duplicate directory rows can arrive on different pages of a sync.
+      // Keep contradictory identities unresolved irrespective of page order.
+      userMap.set(user.id, { ...user, is_bot: false, workspace_ids: [] });
+    } else {
+      userMap.set(user.id, { ...user, is_bot: isBot, ...(workspaceIds ? { workspace_ids: workspaceIds } : {}) });
+    }
+  }
+  return { conversations: snapshot.conversations.map(normalizeConversation), users, userMap };
 }
 
 export function resolveUser(selector: string, users: User[], sourceComplete = true, syncCommand = "slack-axi sync --all --max-pages 100"): User {
