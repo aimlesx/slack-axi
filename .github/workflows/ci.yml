@@ -30,16 +30,16 @@ jobs:
       - run: npm test
       - run: npm audit --audit-level=low
       - name: Pack the release artifact
-        run: npm pack --pack-destination "$RUNNER_TEMP"
+        run: npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/slky-pack.json"
       - name: Install the packed artifact
         run: |
-          package_version="$(node -p "require('./package.json').version")"
-          npm install --prefix "$RUNNER_TEMP/slky-install" "$RUNNER_TEMP/slky-$package_version.tgz"
+          package_file="$(jq -er '.[0].filename' "$RUNNER_TEMP/slky-pack.json")"
+          npm install --prefix "$RUNNER_TEMP/slky-install" "$RUNNER_TEMP/$package_file"
       - name: Exercise the installed executable
         run: |
           package_version="$(node -p "require('./package.json').version")"
           installed="$RUNNER_TEMP/slky-install/node_modules/.bin/slky"
-          test -f "$RUNNER_TEMP/slky-install/node_modules/slky/skills/slky/SKILL.md"
+          test -f "$RUNNER_TEMP/slky-install/node_modules/@aimlesx/slky/skills/slky/SKILL.md"
           test "$("$installed" --version)" = "$package_version"
           "$installed" --help >/dev/null
           HOME="$RUNNER_TEMP/slky-clean-home" "$installed" --output json |

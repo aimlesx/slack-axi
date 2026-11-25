@@ -87,6 +87,9 @@ jobs:
           }
 
           const artifact = report[0];
+          if (artifact.name !== "@aimlesx/slky") {
+            throw new Error("npm pack did not produce @aimlesx/slky");
+          }
           const expectedFiles = new Set([
             "LICENSE",
             "PRIVACY.md",
