@@ -1,6 +1,12 @@
 import { encode } from "@toon-format/toon";
 import type { OutputFormat } from "./types.js";
 
+function projectRow(value: unknown, fields: string[]): unknown {
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(fields.filter((field) => Object.hasOwn(value, field))
+    .map((field) => [field, (value as Record<string, unknown>)[field]]));
+}
+
 function projectData(value: unknown, fields: string[], targetFields: string[]): unknown {
   if (Array.isArray(value)) return value.map((item) => projectData(item, fields, targetFields));
   if (typeof value !== "object" || value === null) return value;
@@ -30,6 +36,14 @@ function selectFields(value: unknown, fields?: string[], targetFields = fields):
 
   const record = value as Record<string, unknown>;
   if (record.schema === "slack-axi/v1" && "data" in record) {
+    const command = (record.scope as { command?: string } | undefined)?.command;
+    const data = record.data as Record<string, unknown> | undefined;
+    if (data && (command === "read" || command === "thread" || command === "search.messages") && Array.isArray(data.messages)) {
+      return { ...record, data: { ...data, messages: data.messages.map((item) => projectRow(item, fields)) } };
+    }
+    if (data && command === "message.get") {
+      return { ...record, data: { ...data, message: projectRow(data.message, fields) } };
+    }
     return { ...record, data: projectData(record.data, fields, targetFields) };
   }
   return projectData(value, fields, targetFields);

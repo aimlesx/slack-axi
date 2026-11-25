@@ -1,3 +1,4 @@
+import type { RichContent } from "./rich-content.js";
 import type { Readable } from "node:stream";
 
 export type AuthKind = "browser" | "user_token";
@@ -113,6 +114,9 @@ export interface User {
 
 export interface Message {
   ref: MessageRef;
+  has_rich_content?: true;
+  rich_preview?: string;
+  rich_content?: RichContent;
   conversation_id: string;
   ts: string;
   time: string;

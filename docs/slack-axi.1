@@ -264,7 +264,7 @@ slack-axi emoji search party --limit 10
 .SS READ
 Read a bounded conversation timeline with thread summaries.
 .PP
-Defaults: --limit 50; rolling 24-hour range ending now when no time flag is supplied; continuation cursors carry the cumulative scanned count
+Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters from cards and attachments; --limit 50; rolling 24-hour range ending now when no time flag is supplied; continuation cursors carry the cumulative scanned count
 .br
 Incompatible combinations: Use only one of --since, --from, or --on; --on also conflicts with --to.
 .nf
@@ -279,7 +279,7 @@ slack-axi read C012ABC --from 2026-08-15T09:00:00+02:00 --to 2026-08-15T17:00:00
 .SS THREAD
 Read a bounded page of one Slack thread.
 .PP
-Defaults: --limit 50; message text previews are capped at 600 Unicode characters; continuation cursors carry the cumulative scanned count
+Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters from cards and attachments; --limit 50; message text previews are capped at 600 Unicode characters; continuation cursors carry the cumulative scanned count
 .br
 Incompatible combinations: None.
 .nf
@@ -366,7 +366,7 @@ slack-axi message send --to '#eng' --text 'Ready'
 .SS MESSAGE GET
 Fetch a root message or thread reply by stable reference.
 .PP
-Defaults: Global --output toon; no command-specific defaults.
+Defaults: --full or --fields rich_content extracts up to 4096 Unicode characters from cards and attachments
 .br
 Incompatible combinations: None.
 .nf

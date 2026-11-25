@@ -1,4 +1,5 @@
 import { AxiError } from "./errors.js";
+import { messageRichFields } from "./rich-content.js";
 import { createMessageRef } from "./refs.js";
 import { slackArray, slackRecord } from "./slack-public.js";
 import type { CacheSnapshot } from "./cache.js";
@@ -48,7 +49,7 @@ export function truncateText(value: string, full: boolean, maximum = 600): { tex
   return { text: full || chars.length <= maximum ? value : `${chars.slice(0, maximum).join("")}…`, text_chars: chars.length, text_truncated: !full && chars.length > maximum };
 }
 
-export function normalizeMessage(raw: Record<string, unknown>, teamId: string, conversationId: string, users: Map<string, User>, full = false, actorId?: string): Message {
+export function normalizeMessage(raw: Record<string, unknown>, teamId: string, conversationId: string, users: Map<string, User>, full = false, actorId?: string, includeRich = false): Message {
   const ts = text(raw.ts);
   if (!ts) throw new AxiError({ code: "SLACK_RESPONSE_INVALID", message: "Slack returned a message without a timestamp." });
   const authorId = text(raw.user, text(raw.bot_id));
@@ -62,6 +63,7 @@ export function normalizeMessage(raw: Record<string, unknown>, teamId: string, c
     time: new Date(Number(ts.split(".")[0]) * 1000).toISOString(),
     ...(authorId ? { author_id: authorId, author: users.get(authorId)?.display_name || users.get(authorId)?.real_name || authorId } : {}),
     ...messageText,
+    ...messageRichFields(raw, includeRich),
     ...(replyCount > 0 ? { thread: { ref: createMessageRef(teamId, conversationId, text(raw.thread_ts, ts)), replies: replyCount, participant_ids: replyUsers, ...(typeof raw.latest_reply === "string" ? { last_reply: new Date(Number(raw.latest_reply.split(".")[0]) * 1000).toISOString() } : {}) } } : {}),
     ...(Array.isArray(raw.files) ? { files: slackArray(raw.files).map((file) => ({ id: text(file.id), name: text(file.name, text(file.title)), ...(typeof file.mimetype === "string" ? { mimetype: file.mimetype } : {}), ...(typeof file.size === "number" ? { size: file.size } : {}) })) } : {}),
     ...(Array.isArray(raw.reactions) ? { reactions: slackArray(raw.reactions).map((reaction) => ({ name: text(reaction.name), count: number(reaction.count), mine: Boolean(actorId && Array.isArray(reaction.users) && reaction.users.includes(actorId)) })) } : {}),

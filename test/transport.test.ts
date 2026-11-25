@@ -142,6 +142,12 @@ describe("bounded Slack transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts a search match with an exact reference and omitted fallback text", async () => {
+    const match = { ts: "1786712345.001200", channel: { id: "C1" } };
+    const fetchMock = vi.fn(async () => Response.json({ ok: true, messages: { matches: [match], total: 1, paging: { pages: 1 } } })) as unknown as typeof fetch;
+    await expect(client(fetchMock).searchMessages("deployment", 20)).resolves.toMatchObject({ items: [match] });
+  });
+
   it("preserves an authoritative empty search collection", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, messages: { matches: [], total: 0, paging: { pages: 0 } } }), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
     await expect(client(fetchMock).searchMessages("nothing", 20)).resolves.toEqual({ items: [], total: 0, pages: 0 });

@@ -64,6 +64,11 @@ function expandsFields(command: Command): boolean {
   return Boolean(globals(command).fields?.split(",").some((field) => field.trim()));
 }
 
+function includeRichContent(command: Command): boolean {
+  const { full, fields } = globals(command);
+  return Boolean(full || fields?.split(",").some((field) => field.trim() === "rich_content"));
+}
+
 function workspaceEnvelope<T>(context: WorkspaceContext, command: string, data: T, extra: Partial<SuccessEnvelope<T>> = {}): SuccessEnvelope<T> {
   const backendCalls = Number(context.public?.backendCalls ?? 0) + Number(context.browser?.backendCalls ?? 0);
   return { schema: "slack-axi/v1", ok: true, workspace: { id: context.profile.team_id, alias: context.profile.alias, actor_id: context.profile.actor_id, auth_kind: context.profile.kind }, scope: { command, backend_calls: backendCalls }, data, ...extra };
@@ -675,10 +680,12 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const binding = liveCursorBinding([ctx.profile.team_id, ctx.profile.actor_id, ctx.snapshot.credential_generation, item.id, range.from.toISOString(), range.to.toISOString()]);
     const continuation = await parseLiveCursor(globals(command).cursor, "read", binding, restart, app.actions);
     const result = await ctx.public.history({ channel: item.id, oldest: String(range.from.getTime() / 1000), latest: String(range.to.getTime() / 1000), limit, ...(continuation.backendCursor ? { cursor: continuation.backendCursor } : {}) });
-    const messages = result.items.map((raw) => normalizeMessage(raw, ctx.profile.team_id, item.id, ctx.userMap, globals(command).full, ctx.profile.actor_id));
+    const messages = result.items.map((raw) => normalizeMessage(raw, ctx.profile.team_id, item.id, ctx.userMap, globals(command).full, ctx.profile.actor_id, includeRichContent(command)));
     const scanned = continuation.scanned + messages.length;
     const next = result.next ? await createLiveCursor("read", binding, result.next, scanned, app.actions) : undefined;
+    const card = messages.find((entry) => entry.has_rich_content && !entry.rich_content);
     const hints = [
+      ...(card ? [{ command: `slack-axi message get ${card.ref} --full --workspace ${shellArgument(ctx.profile.alias)}`, reason: "Read the card details for this message." }] : []),
       ...(messages.some((entry) => entry.text_truncated) ? [{ command: `${restart} --full`, reason: "Expand truncated message text while preserving the exact range." }] : []),
       ...(next ? [{ command: `${restart} --cursor ${next}`, reason: "Continue the same bounded timeline." }] : []),
     ];
@@ -694,10 +701,12 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const binding = liveCursorBinding([ctx.profile.team_id, ctx.profile.actor_id, ctx.snapshot.credential_generation, ref.conversationId, ref.ts]);
     const continuation = await parseLiveCursor(globals(command).cursor, "thread", binding, restart, app.actions);
     const result = await ctx.public.replies({ channel: ref.conversationId, ts: ref.ts, limit, ...(continuation.backendCursor ? { cursor: continuation.backendCursor } : {}) });
-    const messages = result.items.map((raw) => normalizeMessage(raw, ctx.profile.team_id, ref.conversationId, ctx.userMap, globals(command).full, ctx.profile.actor_id));
+    const messages = result.items.map((raw) => normalizeMessage(raw, ctx.profile.team_id, ref.conversationId, ctx.userMap, globals(command).full, ctx.profile.actor_id, includeRichContent(command)));
     const scanned = continuation.scanned + messages.length;
     const next = result.next ? await createLiveCursor("thread", binding, result.next, scanned, app.actions) : undefined;
+    const card = messages.find((entry) => entry.has_rich_content && !entry.rich_content);
     const hints = [
+      ...(card ? [{ command: `slack-axi message get ${card.ref} --full --workspace ${shellArgument(ctx.profile.alias)}`, reason: "Read the card details for this message." }] : []),
       ...(messages.some((entry) => entry.text_truncated) ? [{ command: `${restart} --full`, reason: "Expand truncated thread text for the same thread." }] : []),
       ...(next ? [{ command: `${restart} --cursor ${next}`, reason: "Continue the same thread scan." }] : []),
     ];
@@ -731,7 +740,12 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const items = raw.slice(0, bound).map((entry) => {
       const channel = slackRecord(entry.channel);
       const channelId = String(entry.channel_id ?? channel.id ?? "");
-      return normalizeMessage(entry, ctx.profile.team_id, channelId, ctx.userMap, globals(command).full, ctx.profile.actor_id);
+      const item = normalizeMessage(entry, ctx.profile.team_id, channelId, ctx.userMap, globals(command).full, ctx.profile.actor_id);
+      // Search may return only the fallback text of a card. Resolve it on demand.
+      if (item.has_rich_content || !Array.isArray(entry.blocks) || !Array.isArray(entry.attachments)) {
+        return { ...item, detail_command: `slack-axi message get ${item.ref} --full --workspace ${shellArgument(ctx.profile.alias)}` };
+      }
+      return item;
     });
     const hints: Array<{ command: string; reason: string }> = [];
     if (items.some((entry) => entry.text_truncated)) hints.push({ command: searchReplayCommand("messages", slackQuery, options.sort, ctx.profile.alias, bound, Boolean(options.all), true), reason: "Expand truncated result text while preserving the exact Slack query and bound." });
@@ -1009,11 +1023,11 @@ export function createProgram(app = new SlackAxiApp(), dependencies: CliDependen
     const ref = parseMessageRef(input, ctx.profile.team_id);
     const raw = await ctx.public.messageByTs(ref.conversationId, ref.ts);
     if (!raw) throw new AxiError({ code: "MESSAGE_NOT_FOUND", message: `Message '${input}' was not found.` });
-    const item = normalizeMessage(raw, ctx.profile.team_id, ref.conversationId, ctx.userMap, globals(command).full, ctx.profile.actor_id);
+    const item = normalizeMessage(raw, ctx.profile.team_id, ref.conversationId, ctx.userMap, globals(command).full, ctx.profile.actor_id, includeRichContent(command));
     const permalink = await ctx.public.permalink(ref.conversationId, ref.ts).catch(() => undefined);
     if (permalink) item.permalink = permalink;
-    const hints = item.text_truncated
-      ? [{ command: `slack-axi message get ${item.ref} --full --workspace ${shellArgument(ctx.profile.alias)}`, reason: "Expand the truncated message text." }]
+    const hints = item.text_truncated || (item.has_rich_content && !item.rich_content)
+      ? [{ command: `slack-axi message get ${item.ref} --full --workspace ${shellArgument(ctx.profile.alias)}`, reason: "Expand truncated text and card details." }]
       : undefined;
     emit(command, workspaceEnvelope(ctx, "message.get", { message: item }, { ...(hints ? { hints } : {}) }));
   });
